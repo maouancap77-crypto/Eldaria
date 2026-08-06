@@ -371,36 +371,101 @@ export class GameEngine {
     getMusic().stop()
   }
 
-  // ---- world generation ---------------------------------------------------
+  // ---- world generation (fully procedural) ---------------------------------
+  // Every playthrough generates a unique world: lake/river locations, forest
+  // clusters, ore veins, ruins, clearings, enemy camps, and shrine positions
+  // are all derived from the random seed. The spawn clearing at center is
+  // always kept safe.
+
+  private spawnClearing = { x: 32, y: 32, r: 6 } // player spawn — kept clear of obstacles/enemies
+
+  private inSpawnClearing(tx: number, ty: number): boolean {
+    const c = this.spawnClearing
+    return Math.hypot(tx - c.x, ty - c.y) < c.r
+  }
+
+  private tileValidForResource(t: Tile | undefined, tx: number, ty: number): boolean {
+    if (!t) return false
+    if (t.solid) return false
+    if (t.type === 'water') return false
+    if (this.inSpawnClearing(tx, ty)) return false
+    return true
+  }
+
   private genPlains(seed: number) {
     const rng = mulberry32(seed)
     const tiles: Tile[][] = []
+    // base terrain with subtle noise variation
     for (let y = 0; y < MAP_H; y++) {
       const row: Tile[] = []
       for (let x = 0; x < MAP_W; x++) {
         const r = rng()
+        // patches of darker grass2 for texture
         row.push(T(r > 0.82 ? 'grass2' : 'grass', false, Math.floor(rng() * 1000)))
       }
       tiles.push(row)
     }
-    // lake
-    const lx = 48, ly = 10, lr = 7
-    for (let y = -lr; y <= lr; y++) {
-      for (let x = -lr; x <= lr; x++) {
-        const tx = lx + x, ty = ly + y
-        if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) continue
-        if (x * x + y * y < lr * lr) tiles[ty][tx] = T('water', true, 0)
-        else if (x * x + y * y < (lr + 1) * (lr + 1) && rng() > 0.4) tiles[ty][tx] = T('sand', false, Math.floor(rng() * 1000))
+
+    // ---- 1. Lakes: 1-3 random lakes, away from spawn ----
+    const lakeCount = 1 + Math.floor(rng() * 3)
+    for (let l = 0; l < lakeCount; l++) {
+      let lx: number, ly: number, lr: number, tries = 0
+      do {
+        lx = 6 + Math.floor(rng() * (MAP_W - 12))
+        ly = 6 + Math.floor(rng() * (MAP_H - 12))
+        lr = 4 + Math.floor(rng() * 5)
+        tries++
+      } while (this.inSpawnClearing(lx, ly) && tries < 20)
+      for (let y = -lr - 1; y <= lr + 1; y++) {
+        for (let x = -lr - 1; x <= lr + 1; x++) {
+          const tx = lx + x, ty = ly + y
+          if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) continue
+          const d = x * x + y * y
+          if (d < lr * lr) tiles[ty][tx] = T('water', true, 0)
+          else if (d < (lr + 2) * (lr + 2) && rng() > 0.4) tiles[ty][tx] = T('sand', false, Math.floor(rng() * 1000))
+        }
       }
     }
-    // paths crossing the map
-    for (let x = 0; x < MAP_W; x++) tiles[32][x] = T('path', false, Math.floor(rng() * 1000))
-    for (let y = 0; y < MAP_H; y++) tiles[y][32] = T('path', false, Math.floor(rng() * 1000))
 
-    // resources
+    // ---- 2. A serpentine river crossing part of the map ----
+    if (rng() > 0.3) {
+      const horiz = rng() > 0.5
+      const startPos = 4 + Math.floor(rng() * (MAP_H - 8))
+      const width = 2 + Math.floor(rng() * 2)
+      let cy = startPos
+      for (let x = 0; x < MAP_W; x++) {
+        cy += Math.round((rng() - 0.5) * 2)
+        cy = Math.max(2, Math.min(MAP_H - 3, cy))
+        for (let w = -width; w <= width; w++) {
+          const ty = cy + w
+          if (ty < 0 || ty >= MAP_H) continue
+          if (!this.inSpawnClearing(x, ty)) tiles[ty][x] = T('water', true, 0)
+        }
+      }
+    }
+
+    // ---- 3. Paths: a cross or L-shaped path through spawn ----
+    const pathStyle = Math.floor(rng() * 3)
+    if (pathStyle === 0) {
+      // cross
+      for (let x = 0; x < MAP_W; x++) if (tiles[32][x].type !== 'water') tiles[32][x] = T('path', false, Math.floor(rng() * 1000))
+      for (let y = 0; y < MAP_H; y++) if (tiles[y][32].type !== 'water') tiles[y][32] = T('path', false, Math.floor(rng() * 1000))
+    } else if (pathStyle === 1) {
+      // horizontal only
+      const py = 28 + Math.floor(rng() * 8)
+      for (let x = 0; x < MAP_W; x++) if (tiles[py][x].type !== 'water') tiles[py][x] = T('path', false, Math.floor(rng() * 1000))
+      for (let y = 0; y < MAP_H; y++) if (tiles[y][32].type !== 'water') tiles[y][32] = T('path', false, Math.floor(rng() * 1000))
+    } else {
+      // diagonal-ish (two paths meeting at center, offset)
+      const ax = 24 + Math.floor(rng() * 16)
+      for (let x = 0; x < MAP_W; x++) if (tiles[32][x].type !== 'water') tiles[32][x] = T('path', false, Math.floor(rng() * 1000))
+      for (let y = 0; y < MAP_H; y++) if (tiles[y][ax].type !== 'water') tiles[y][ax] = T('path', false, Math.floor(rng() * 1000))
+    }
+
+    // ---- 4. Resources: scattered in procedural clusters ----
     const resources: ResourceNode[] = []
     let rid = 1
-    const place = (type: ResourceNode['type'], count: number, region?: { x: number; y: number; r: number }) => {
+    const placeCluster = (type: ResourceNode['type'], count: number, region?: { x: number; y: number; r: number }) => {
       for (let i = 0; i < count; i++) {
         let tx: number, ty: number, tries = 0
         do {
@@ -412,169 +477,355 @@ export class GameEngine {
             ty = Math.floor(rng() * MAP_H)
           }
           tries++
-        } while ((tiles[ty]?.[tx]?.solid || tiles[ty]?.[tx]?.type === 'water' || (tx >= 28 && tx <= 36 && ty >= 28 && ty <= 36)) && tries < 30)
-        if (!tiles[ty] || !tiles[ty][tx]) continue
-        if (tiles[ty][tx].type === 'water') continue
-        // keep spawn area clear
-        if (tx >= 28 && tx <= 36 && ty >= 28 && ty <= 36) continue
+        } while (!this.tileValidForResource(tiles[ty]?.[tx], tx, ty) && tries < 30)
+        if (!this.tileValidForResource(tiles[ty]?.[tx], tx, ty)) continue
         const hp = type === 'tree' ? 4 : type === 'rock' ? 5 : type === 'iron' ? 6 : type === 'coal' ? 6 : type === 'bush' ? 2 : 2
         resources.push({ id: rid++, x: tx * TILE + TILE / 2, y: ty * TILE + TILE / 2 + (type === 'tree' ? 4 : 0), type, hp, maxHp: hp, respawnAt: 0, alive: true, v: Math.floor(rng() * 1000) })
-        // mark some tiles for trees/rocks as solid (handled via node collision)
       }
     }
-    place('tree', 60)
-    place('rock', 28)
-    place('bush', 24)
-    place('herb', 20)
-    place('iron', 10, { x: 12, y: 52, r: 6 })
-    place('coal', 10, { x: 52, y: 52, r: 6 })
+    // forest clusters (3-5 dense groves)
+    const groveCount = 3 + Math.floor(rng() * 3)
+    for (let g = 0; g < groveCount; g++) {
+      const gx = 6 + Math.floor(rng() * (MAP_W - 12))
+      const gy = 6 + Math.floor(rng() * (MAP_H - 12))
+      placeCluster('tree', 12 + Math.floor(rng() * 14), { x: gx, y: gy, r: 4 + Math.floor(rng() * 3) })
+    }
+    // rock fields (2-3)
+    const rockFields = 2 + Math.floor(rng() * 2)
+    for (let r = 0; r < rockFields; r++) {
+      const rx = 6 + Math.floor(rng() * (MAP_W - 12))
+      const ry = 6 + Math.floor(rng() * (MAP_H - 12))
+      placeCluster('rock', 6 + Math.floor(rng() * 8), { x: rx, y: ry, r: 3 + Math.floor(rng() * 2) })
+    }
+    // ore veins: iron and coal in 1-2 random mountainous spots each
+    const veinCount = 1 + Math.floor(rng() * 2)
+    for (let v = 0; v < veinCount; v++) {
+      const ix = 4 + Math.floor(rng() * (MAP_W - 8))
+      const iy = 4 + Math.floor(rng() * (MAP_H - 8))
+      placeCluster('iron', 6 + Math.floor(rng() * 6), { x: ix, y: iy, r: 3 })
+      placeCluster('coal', 5 + Math.floor(rng() * 5), { x: ix + 3, y: iy + 2, r: 3 })
+    }
+    // scattered bushes and herbs
+    placeCluster('bush', 18 + Math.floor(rng() * 10))
+    placeCluster('herb', 14 + Math.floor(rng() * 10))
 
-    // flowers decoration (non-resource)
-    for (let i = 0; i < 40; i++) {
-      const tx = Math.floor(rng() * MAP_W), ty = Math.floor(rng() * MAP_H)
-      if (tiles[ty]?.[tx]?.type === 'grass' && rng() > 0.5) tiles[ty][tx] = T('flower', false, Math.floor(rng() * 1000))
+    // ---- 5. Ruins: scattered wall-tile blocks (decorative + solid) ----
+    const ruinCount = 2 + Math.floor(rng() * 3)
+    for (let r = 0; r < ruinCount; r++) {
+      const rx = 6 + Math.floor(rng() * (MAP_W - 12))
+      const ry = 6 + Math.floor(rng() * (MAP_H - 12))
+      if (this.inSpawnClearing(rx, ry)) continue
+      const rw = 2 + Math.floor(rng() * 3)
+      const rh = 2 + Math.floor(rng() * 3)
+      // only place walls on non-water tiles, leave a gap (doorway)
+      const gap = Math.floor(rng() * rw)
+      for (let y = 0; y < rh; y++) {
+        for (let x = 0; x < rw; x++) {
+          if (x === gap && y === rh - 1) continue // doorway
+          const tx = rx + x, ty = ry + y
+          if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) continue
+          if (tiles[ty][tx].type === 'water') continue
+          tiles[ty][tx] = T('wall', true, Math.floor(rng() * 1000))
+        }
+      }
     }
 
-    // stations near spawn (center)
+    // ---- 6. Flowers and dirt patches (decoration) ----
+    const flowerCount = 30 + Math.floor(rng() * 30)
+    for (let i = 0; i < flowerCount; i++) {
+      const tx = Math.floor(rng() * MAP_W), ty = Math.floor(rng() * MAP_H)
+      if (tiles[ty]?.[tx]?.type === 'grass' && rng() > 0.4) tiles[ty][tx] = T('flower', false, Math.floor(rng() * 1000))
+    }
+    const dirtPatchCount = 5 + Math.floor(rng() * 6)
+    for (let i = 0; i < dirtPatchCount; i++) {
+      const dx = Math.floor(rng() * MAP_W), dy = Math.floor(rng() * MAP_H)
+      const ds = 2 + Math.floor(rng() * 3)
+      for (let y = -ds; y <= ds; y++) {
+        for (let x = -ds; x <= ds; x++) {
+          const tx = dx + x, ty = dy + y
+          if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) continue
+          if (x * x + y * y > ds * ds) continue
+          if (tiles[ty][tx].type === 'grass' || tiles[ty][tx].type === 'grass2') tiles[ty][tx] = T('dirt', false, Math.floor(rng() * 1000))
+        }
+      }
+    }
+
+    // ---- 7. Stations near spawn (always at center, fixed for usability) ----
     const stations: CraftingStation[] = [
       { id: 1, x: 30 * TILE + 16, y: 30 * TILE, type: 'campfire' },
       { id: 2, x: 34 * TILE + 16, y: 30 * TILE, type: 'workbench' },
     ]
 
-    // portals: dungeon entrance in the north
+    // ---- 8. Dungeon portal: random edge position (avoid spawn) ----
+    let px = 0, py = 0, ptries = 0
+    do {
+      // pick a random edge
+      const edge = Math.floor(rng() * 4)
+      if (edge === 0) { px = 4 + Math.floor(rng() * (MAP_W - 8)); py = 4 }
+      else if (edge === 1) { px = 4 + Math.floor(rng() * (MAP_W - 8)); py = MAP_H - 5 }
+      else if (edge === 2) { px = 4; py = 4 + Math.floor(rng() * (MAP_H - 8)) }
+      else { px = MAP_W - 5; py = 4 + Math.floor(rng() * (MAP_H - 8)) }
+      ptries++
+    } while (this.inSpawnClearing(px, py) && ptries < 20)
+    // clear tiles around portal
+    for (let y = -1; y <= 2; y++) {
+      for (let x = -1; x <= 1; x++) {
+        const tx = px + x, ty = py + y
+        if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) continue
+        if (tiles[ty][tx].solid) tiles[ty][tx] = T('path', false, Math.floor(rng() * 1000))
+      }
+    }
     const portals: Portal[] = [
-      { x: 32 * TILE - 20, y: 4 * TILE, w: 40, h: 56, to: 'dungeon', label: 'Cripta do Silêncio' },
+      { x: px * TILE - 4, y: py * TILE, w: 40, h: 56, to: 'dungeon', label: 'Cripta do Silêncio' },
     ]
+    // remember dungeon portal position for player navigation hint
+    this.dungeonPortalPos = { x: px, y: py }
 
     this.tiles.plains = tiles
     this.resources.plains = resources
     this.stations = stations
     this.portals.plains = portals
+    this.tileCacheDirty.plains = true
   }
 
+  private dungeonPortalPos = { x: 32, y: 4 }
+
   private genDungeon(seed: number) {
+    // Procedural dungeon: random rooms connected by corridors, with a boss
+    // arena at the far end. Layout changes every playthrough.
     const rng = mulberry32(seed ^ 0x9e37)
     const W = DUNGEON_W, H = DUNGEON_H
     const tiles: Tile[][] = []
-    // start all walls
     for (let y = 0; y < H; y++) {
       const row: Tile[] = []
       for (let x = 0; x < W; x++) row.push(T('wall', true, Math.floor(rng() * 1000)))
       tiles.push(row)
     }
-    // carve rooms + corridors
     const carve = (x0: number, y0: number, w: number, h: number) => {
       for (let y = y0; y < y0 + h; y++)
         for (let x = x0; x < x0 + w; x++)
           if (x >= 0 && y >= 0 && x < W && y < H) tiles[y][x] = T('floor', false, Math.floor(rng() * 1000))
     }
-    // entrance room
-    carve(18, 2, 4, 4)
-    // corridor down
-    carve(19, 6, 2, 6)
-    // mid room
-    carve(15, 12, 10, 6)
-    carve(13, 14, 2, 2)
-    carve(25, 14, 2, 2)
-    // corridor to boss
-    carve(19, 18, 2, 6)
-    // boss arena
-    carve(13, 24, 14, 12)
-    // side chambers
-    carve(4, 10, 6, 6)
-    carve(30, 10, 6, 6)
-    carve(4, 24, 6, 6)
-    carve(30, 24, 6, 6)
-    // connect side chambers
-    carve(10, 12, 3, 2)
-    carve(27, 12, 3, 2)
-    carve(10, 27, 3, 2)
-    carve(27, 27, 3, 2)
-    // rubble decoration
-    for (let i = 0; i < 24; i++) {
+    const carveH = (x1: number, x2: number, y: number) => {
+      for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) if (x >= 0 && x < W && y >= 0 && y < H) tiles[y][x] = T('floor', false, Math.floor(rng() * 1000))
+    }
+    const carveV = (y1: number, y2: number, x: number) => {
+      for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++) if (x >= 0 && x < W && y >= 0 && y < H) tiles[y][x] = T('floor', false, Math.floor(rng() * 1000))
+    }
+
+    // entrance room at top-center
+    const entX = Math.floor(W / 2) - 1
+    const entY = 2
+    carve(entX, entY, 4, 4)
+
+    // generate 4-6 random rooms, connected by corridors
+    const rooms: { x: number; y: number; w: number; h: number; cx: number; cy: number }[] = []
+    const roomCount = 4 + Math.floor(rng() * 3)
+    let lastCx = entX + 2, lastCy = entY + 4
+    for (let i = 0; i < roomCount; i++) {
+      let rx: number, ry: number, rw: number, rh: number, tries = 0
+      do {
+        rw = 4 + Math.floor(rng() * 6)
+        rh = 4 + Math.floor(rng() * 5)
+        rx = 2 + Math.floor(rng() * (W - rw - 4))
+        ry = 8 + Math.floor(rng() * (H - rh - 10))
+        tries++
+      } while (tries < 30)
+      carve(rx, ry, rw, rh)
+      const cx = rx + Math.floor(rw / 2), cy = ry + Math.floor(rh / 2)
+      // connect to previous room with an L-shaped corridor
+      carveH(lastCx, cx, lastCy)
+      carveV(lastCy, cy, cx)
+      rooms.push({ x: rx, y: ry, w: rw, h: rh, cx, cy })
+      lastCx = cx; lastCy = cy
+    }
+
+    // boss arena: large room at the bottom
+    const bossW = 10 + Math.floor(rng() * 4)
+    const bossH = 8 + Math.floor(rng() * 4)
+    const bossX = Math.floor((W - bossW) / 2)
+    const bossY = H - bossH - 2
+    carve(bossX, bossY, bossW, bossH)
+    // connect last room to boss arena
+    carveH(lastCx, bossX + Math.floor(bossW / 2), lastCy)
+    carveV(lastCy, bossY + Math.floor(bossH / 2), bossX + Math.floor(bossW / 2))
+
+    // rubble decoration on floors
+    const rubbleCount = 18 + Math.floor(rng() * 16)
+    for (let i = 0; i < rubbleCount; i++) {
       const tx = Math.floor(rng() * W), ty = Math.floor(rng() * H)
       if (tiles[ty]?.[tx]?.type === 'floor' && rng() > 0.6) tiles[ty][tx] = T('rubble', false, Math.floor(rng() * 1000))
     }
-    // altar in boss room center
-    tiles[29][19] = T('altar', false, 0)
-    tiles[29][20] = T('altar', false, 0)
-    // exit door (back to plains) at entrance
-    tiles[3][19] = T('door', false, 0)
-    tiles[3][20] = T('door', false, 0)
+    // altar in boss arena center
+    const altarX = bossX + Math.floor(bossW / 2)
+    const altarY = bossY + Math.floor(bossH / 2)
+    if (tiles[altarY]?.[altarX]) tiles[altarY][altarX] = T('altar', false, 0)
+    if (tiles[altarY]?.[altarX + 1]) tiles[altarY][altarX + 1] = T('altar', false, 0)
+    // exit door at entrance
+    if (tiles[entY - 1]?.[entX]) tiles[entY - 1][entX] = T('door', false, 0)
+    if (tiles[entY - 1]?.[entX + 1]) tiles[entY - 1][entX + 1] = T('door', false, 0)
+
+    // store boss arena center for enemy spawning
+    this.dungeonBossPos = { x: altarX, y: altarY }
+    // store entrance for player spawn
+    this.dungeonEntrancePos = { x: entX + 2, y: entY }
 
     const portals: Portal[] = [
-      { x: 19 * TILE, y: 3 * TILE, w: 2 * TILE, h: TILE, to: 'plains', label: 'Voltar à Planície' },
+      { x: entX * TILE, y: (entY - 1) * TILE, w: 2 * TILE, h: TILE, to: 'plains', label: 'Voltar à Planície' },
     ]
     this.tiles.dungeon = tiles
     this.portals.dungeon = portals
     this.resources.dungeon = []
+    this.tileCacheDirty.dungeon = true
   }
 
+  private dungeonBossPos = { x: 20, y: 29 }
+  private dungeonEntrancePos = { x: 20, y: 4 }
+
   private spawnStructures() {
+    // Procedural shrine placement: chapel and tower at random valid positions,
+    // far from spawn and from each other. Positions derived from seed (already
+    // applied via genPlains rng) — here we pick using a fresh rng from seed.
+    const rng = mulberry32(this.seed + 7777)
     this.structures = []
-    // chapel in the west (paladin ascension)
-    this.structures.push({ id: 1, type: 'chapel', x: 8 * TILE, y: 22 * TILE, used: false })
-    // wizard tower in the east (mage ascension) — only interacts at night
-    this.structures.push({ id: 2, type: 'tower', x: 56 * TILE, y: 22 * TILE, used: false })
+    const placed: { x: number; y: number }[] = []
+    const findSpot = (minDist: number): { x: number; y: number } => {
+      for (let tries = 0; tries < 60; tries++) {
+        const tx = 4 + Math.floor(rng() * (MAP_W - 8))
+        const ty = 4 + Math.floor(rng() * (MAP_H - 8))
+        if (this.inSpawnClearing(tx, ty)) continue
+        // not on water
+        const t = this.tiles.plains[ty]?.[tx]
+        if (!t || t.type === 'water' || t.solid) continue
+        // far enough from other structures and portal
+        if (Math.hypot(tx - this.dungeonPortalPos.x, ty - this.dungeonPortalPos.y) < minDist) continue
+        let ok = true
+        for (const p of placed) {
+          if (Math.hypot(tx - p.x, ty - p.y) < 10) { ok = false; break }
+        }
+        if (!ok) continue
+        // clear surrounding tiles so the structure is reachable
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const t2 = this.tiles.plains[ty + dy]?.[tx + dx]
+            if (t2 && (t2.solid || t2.type === 'water')) {
+              this.tiles.plains[ty + dy][tx + dx] = T('grass', false, Math.floor(rng() * 1000))
+            }
+          }
+        }
+        placed.push({ x: tx, y: ty })
+        return { x: tx, y: ty }
+      }
+      return { x: 8, y: 22 }
+    }
+    const chapel = findSpot(12)
+    const tower = findSpot(12)
+    this.structures.push({ id: 1, type: 'chapel', x: chapel.x * TILE, y: chapel.y * TILE, used: false })
+    this.structures.push({ id: 2, type: 'tower', x: tower.x * TILE, y: tower.y * TILE, used: false })
+    this.tileCacheDirty.plains = true
   }
 
   private spawnEnemies() {
+    // Procedural enemy placement: enemies spawn at random valid floor tiles,
+    // distributed in small "camps" of the same type. The composition and
+    // locations change every playthrough. Bosses are placed at fixed logical
+    // spots (bear boss in a random plains clearing, dungeon boss in arena).
     this.enemies = []
     let id = 1
+    const rng = mulberry32(this.seed + (this.zone === 'plains' ? 3333 : 5555))
+
     if (this.zone === 'plains') {
-      // farming packs scattered around (avoid spawn center)
-      const packs: { kind: EnemyKind; x: number; y: number }[] = [
-        { kind: 'slime', x: 12 * TILE, y: 12 * TILE },
-        { kind: 'slime', x: 14 * TILE, y: 13 * TILE },
-        { kind: 'slime', x: 50 * TILE, y: 14 * TILE },
-        { kind: 'goblin', x: 16 * TILE, y: 50 * TILE },
-        { kind: 'goblin', x: 18 * TILE, y: 52 * TILE },
-        { kind: 'goblin', x: 48 * TILE, y: 50 * TILE },
-        { kind: 'wolf', x: 40 * TILE, y: 18 * TILE },
-        { kind: 'wolf', x: 42 * TILE, y: 20 * TILE },
-        { kind: 'wolf', x: 20 * TILE, y: 40 * TILE },
-        { kind: 'skeleton', x: 8 * TILE, y: 30 * TILE },
-        { kind: 'skeleton', x: 56 * TILE, y: 30 * TILE },
-        { kind: 'wraith', x: 32 * TILE, y: 56 * TILE },
-        // ---- new enemies ----
-        { kind: 'jaguar', x: 44 * TILE, y: 44 * TILE },
-        { kind: 'jaguar', x: 46 * TILE, y: 46 * TILE },
-        { kind: 'drake', x: 24 * TILE, y: 16 * TILE },
-        { kind: 'vampire', x: 38 * TILE, y: 52 * TILE },
-        { kind: 'vampire', x: 52 * TILE, y: 38 * TILE },
-        { kind: 'lizard_bard', x: 14 * TILE, y: 38 * TILE },
-        { kind: 'lizard_bard', x: 50 * TILE, y: 24 * TILE },
-        // bear boss in a clearing in the far north-east
-        { kind: 'bear_boss', x: 56 * TILE, y: 8 * TILE },
-      ]
-      for (const p of packs) {
-        const e = this.makeEnemy(id++, p.kind, p.x, p.y)
-        if (p.kind === 'bear_boss') {
-          e.isBoss = true
-          e.leash = 9999
+      // helper: find a random valid spawn tile (non-solid, non-water, outside
+      // spawn clearing, optionally with a min distance from a point)
+      const findTile = (minDistFrom?: { x: number; y: number }, d?: number): { x: number; y: number } => {
+        for (let tries = 0; tries < 40; tries++) {
+          const tx = 3 + Math.floor(rng() * (MAP_W - 6))
+          const ty = 3 + Math.floor(rng() * (MAP_H - 6))
+          if (this.inSpawnClearing(tx, ty)) continue
+          const t = this.tiles.plains[ty]?.[tx]
+          if (!t || t.solid || t.type === 'water') continue
+          if (minDistFrom && d && Math.hypot(tx - minDistFrom.x, ty - minDistFrom.y) < d) continue
+          // avoid placing right on the dungeon portal tile
+          if (Math.hypot(tx - this.dungeonPortalPos.x, ty - this.dungeonPortalPos.y) < 3) continue
+          return { x: tx, y: ty }
         }
-        this.enemies.push(e)
+        return { x: 10, y: 10 }
       }
-    } else {
-      // dungeon: tougher mobs + boss
-      const packs: { kind: EnemyKind; x: number; y: number }[] = [
-        { kind: 'skeleton', x: 7 * TILE, y: 13 * TILE },
-        { kind: 'skeleton', x: 33 * TILE, y: 13 * TILE },
-        { kind: 'skeleton', x: 7 * TILE, y: 27 * TILE },
-        { kind: 'wraith', x: 33 * TILE, y: 27 * TILE },
-        { kind: 'wraith', x: 20 * TILE, y: 15 * TILE },
-        { kind: 'goblin', x: 17 * TILE, y: 9 * TILE },
-        { kind: 'goblin', x: 23 * TILE, y: 9 * TILE },
-        // new enemies in the dungeon too
-        { kind: 'vampire', x: 6 * TILE, y: 27 * TILE },
-        { kind: 'vampire', x: 34 * TILE, y: 27 * TILE },
-        { kind: 'jaguar', x: 20 * TILE, y: 14 * TILE },
+      // spawn camps: small groups of the same enemy near each other
+      const camps: { kind: EnemyKind; count: number }[] = [
+        { kind: 'slime', count: 2 + Math.floor(rng() * 2) },
+        { kind: 'goblin', count: 2 + Math.floor(rng() * 2) },
+        { kind: 'wolf', count: 2 + Math.floor(rng() * 2) },
+        { kind: 'jaguar', count: 1 + Math.floor(rng() * 2) },
+        { kind: 'vampire', count: 1 + Math.floor(rng() * 2) },
+        { kind: 'lizard_bard', count: 1 + Math.floor(rng() * 2) },
+        { kind: 'skeleton', count: 1 + Math.floor(rng() * 2) },
+        { kind: 'wraith', count: 1 },
       ]
-      for (const p of packs) {
-        this.enemies.push(this.makeEnemy(id++, p.kind, p.x, p.y))
+      for (const camp of camps) {
+        // pick a camp center, then scatter the group around it
+        const center = findTile()
+        for (let i = 0; i < camp.count; i++) {
+          const spot = {
+            x: Math.max(2, Math.min(MAP_W - 3, center.x + Math.round((rng() - 0.5) * 6))),
+            y: Math.max(2, Math.min(MAP_H - 3, center.y + Math.round((rng() - 0.5) * 6))),
+          }
+          const t = this.tiles.plains[spot.y]?.[spot.x]
+          if (!t || t.solid || t.type === 'water') continue
+          if (this.inSpawnClearing(spot.x, spot.y)) continue
+          this.enemies.push(this.makeEnemy(id++, camp.kind, spot.x * TILE + TILE / 2, spot.y * TILE + TILE / 2))
+        }
       }
-      // boss in arena
-      const boss = this.makeEnemy(id++, 'boss', 20 * TILE, 30 * TILE)
+      // drake: 1-2, placed in open areas (away from forest)
+      const drakeCount = 1 + Math.floor(rng() * 2)
+      for (let i = 0; i < drakeCount; i++) {
+        const spot = findTile()
+        this.enemies.push(this.makeEnemy(id++, 'drake', spot.x * TILE + TILE / 2, spot.y * TILE + TILE / 2))
+      }
+      // bear boss (Maou Ursão): in a random far clearing, kept away from spawn
+      const bossSpot = findTile({ x: 32, y: 32 }, 18)
+      const bear = this.makeEnemy(id++, 'bear_boss', bossSpot.x * TILE + TILE / 2, bossSpot.y * TILE + TILE / 2)
+      bear.isBoss = true
+      bear.leash = 9999
+      // clear a little arena around the bear
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const t = this.tiles.plains[bossSpot.y + dy]?.[bossSpot.x + dx]
+          if (t && t.solid && t.type !== 'water') {
+            this.tiles.plains[bossSpot.y + dy][bossSpot.x + dx] = T('grass', false, Math.floor(rng() * 1000))
+          }
+        }
+      }
+      this.tileCacheDirty.plains = true
+      this.enemies.push(bear)
+    } else {
+      // dungeon: scatter enemies on carved floor tiles, boss in arena center
+      const isFloor = (tx: number, ty: number) => {
+        const t = this.tiles.dungeon[ty]?.[tx]
+        return t && !t.solid && t.type !== 'wall'
+      }
+      const findFloor = (minDistFrom?: { x: number; y: number }, d?: number): { x: number; y: number } => {
+        for (let tries = 0; tries < 50; tries++) {
+          const tx = Math.floor(rng() * DUNGEON_W)
+          const ty = 3 + Math.floor(rng() * (DUNGEON_H - 6))
+          if (!isFloor(tx, ty)) continue
+          if (minDistFrom && d && Math.hypot(tx - minDistFrom.x, ty - minDistFrom.y) < d) continue
+          // avoid the entrance
+          if (Math.hypot(tx - this.dungeonEntrancePos.x, ty - this.dungeonEntrancePos.y) < 4) continue
+          return { x: tx, y: ty }
+        }
+        return { x: this.dungeonEntrancePos.x, y: this.dungeonEntrancePos.y + 4 }
+      }
+      // enemy composition: random mix
+      const mobs: EnemyKind[] = ['skeleton', 'skeleton', 'goblin', 'goblin', 'wraith', 'jaguar', 'vampire']
+      const mobCount = 7 + Math.floor(rng() * 4)
+      for (let i = 0; i < mobCount; i++) {
+        const kind = mobs[Math.floor(rng() * mobs.length)]
+        const spot = findFloor(this.dungeonBossPos, 6)
+        this.enemies.push(this.makeEnemy(id++, kind, spot.x * TILE + TILE / 2, spot.y * TILE + TILE / 2))
+      }
+      // boss in arena center
+      const boss = this.makeEnemy(id++, 'boss', this.dungeonBossPos.x * TILE, this.dungeonBossPos.y * TILE)
       boss.isBoss = true
       boss.leash = 9999
       this.enemies.push(boss)
@@ -1204,11 +1455,13 @@ export class GameEngine {
     const to = portal.to
     this.zone = to
     if (to === 'plains') {
-      this.player.x = 32 * TILE + 16
-      this.player.y = 8 * TILE
+      // return near the dungeon portal (procedural position)
+      this.player.x = this.dungeonPortalPos.x * TILE + TILE / 2
+      this.player.y = (this.dungeonPortalPos.y + 2) * TILE
     } else {
-      this.player.x = 20 * TILE
-      this.player.y = 5 * TILE + 16
+      // enter dungeon at its procedural entrance
+      this.player.x = this.dungeonEntrancePos.x * TILE
+      this.player.y = this.dungeonEntrancePos.y * TILE + 16
     }
     this.spawnEnemies()
     this.flashToast(to === 'plains' ? 'Planície Dourada' : 'Cripta do Silêncio', 'info')

@@ -121,3 +121,33 @@ Stage Summary:
 - Ícone de fantasia ativo: <link rel="icon" href="/game/icon.png"> confirmado no HTML (HTTP 200). Título da aba "Eldoria Online — RPG Souls-like Pixel Art".
 - Boss urso renomeado para "Maou Ursão" — confirmado via engine snapshot.bossName = "Maou Ursão".
 - Lint limpo, sem erros de runtime.
+
+---
+Task ID: 6
+Agent: main (Z.ai Code)
+Task: Tornar o mundo totalmente procedural — a cada play o mapa, inimigos, estruturas e relevos mudam.
+
+Work Log:
+- Reescrevi genPlains(seed) para ser totalmente procedural:
+  * 1-3 lagos em posições aleatórias (raio variável, areia ao redor)
+  * Rio serpenteante opcional cruzando o mapa (largura e trajeto aleatórios)
+  * 3 estilos de caminhos (cruz, horizontal, diagonal) escolhidos aleatoriamente
+  * Clusters de floresta (3-5 bosques densos de árvores em posições aleatórias)
+  * Campos de pedra (2-3 agrupamentos)
+  * Veios de minério (ferro + carvão) em 1-2 regiões aleatórias
+  * Ruínas (2-4 blocos de parede com porta) em posições aleatórias
+  * Flores e patches de terra espalhados aleatoriamente
+  * Portal da masmorra em borda aleatória do mapa
+  * Área de spawn central (raio 6 tiles) sempre mantida limpa de obstáculos/perigos
+- Reescrevi genDungeon(seed) procedural: 4-6 salas aleatórias conectadas por corredores em L, arena de boss no fundo com tamanho aleatório, altar e porta nas posições corretas.
+- Reescrevi spawnStructures(): capela e torre em posições aleatórias válidas (longe do spawn, longe uma da outra, longe do portal), com tiles ao redor limpos para acessibilidade.
+- Reescrevi spawnEnemies(): inimigos spawnam em "acampamentos" de mesmo tipo em posições aleatórias válidas. Composição e contagem variam por seed. Bear boss (Maou Ursão) em clearing aleatório longe do spawn. Masmorra: mix aleatório de mobs em tiles de piso válidos, boss no centro da arena.
+- Corrigi changeZone() para usar as posições procedurais (dungeonPortalPos para retornar às planícies, dungeonEntrancePos para entrar na masmorra).
+- Cada nova partida gera um seed aleatório (Date.now() + Math.random()), garantindo mundo único a cada play.
+
+Stage Summary:
+- Mundo 100% procedural verificado via Agent Browser — duas partidas geraram mundos completamente diferentes:
+  * Play 1: seed=47378, portal da masmorra em (28,59), 14 inimigos
+  * Play 2: seed=26345, portal em (4,8), 17 inimigos, capela em (49,49), torre em (26,41), bear boss em (60,6), 556 tiles de água (rio procedural)
+- VLM confirmou visualmente: rio/lago horizontal na parte inferior, caminhos cruzando, clusters de árvores e pedras/ruínas em posições variadas — layout único e procedural.
+- Lint limpo, sem erros no console. Área de spawn sempre segura.

@@ -1511,7 +1511,7 @@ export class GameEngine {
       this.submitLeaderboard()
     } else if (e.kind === 'bear_boss') {
       // bear boss is a world boss — big reward but not victory
-      this.flashToast('URSA MAIOR TOMBA! Espólios lendários!', 'good')
+      this.flashToast('MAOU URSÃO TOMBA! Espólios lendários!', 'good')
       this.shake(8, 0.6)
       this.spawnParticles(e.x, e.y, 40, '#f1c40f')
     }

@@ -228,7 +228,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
   },
   bear_boss: {
     // Boss Urso — tanque brutal com ataque de garra em área e investida
-    kind: 'bear_boss', name: 'Ursa Maior, a Anciã', hp: 900, damage: 38, speed: 60, xp: 450,
+    kind: 'bear_boss', name: 'Maou Ursão', hp: 900, damage: 38, speed: 60, xp: 450,
     gold: [150, 220], sight: 500, reach: 70, windup: 0.65, active: 0.32, recovery: 0.75,
     loot: [{ id: 'hide', chance: 1, min: 6, max: 6 }, { id: 'raw_meat', chance: 1, min: 5, max: 5 }, { id: 'essence', chance: 1, min: 4, max: 4 }, { id: 'hp_potion', chance: 1, min: 3, max: 3 }, { id: 'bone', chance: 1, min: 6, max: 6 }],
     color: '#7e5109', scale: 2.4,

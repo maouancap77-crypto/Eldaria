@@ -106,3 +106,18 @@ Stage Summary:
 - Capela e Torre Arcana como estruturas mundiais com sprites próprios.
 - Verificado via Agent Browser: arqueiro começa com 30 flechas e consome 1 por tiro (bloqueia sem flechas), lock-on vira para o alvo imediatamente, capela concede paladino (+20% HP, Golpe Sagrado 108 dano em esqueleto), torre à noite concede mago (Bola de Fogo + Nova de Gelo), bear boss visível com barra "Ursa Maior, a Anciã", 61 FPS mantido, sem erros no console.
 - Lint limpo. Controles: WASD · J/Click · K/RMB(hold) · Shift · Tab · E · F/G habilidades · I · C · Esc.
+
+---
+Task ID: 5
+Agent: main (Z.ai Code)
+Task: Trocar ícone do app para fantasia (em vez do logo Z.ai) e renomear boss urso para "Maou Ursão". Esclarecer erro de hydration.
+
+Work Log:
+- Ícone: gerei ícone pixel-art de fantasia via z-ai image-generation (1024x1024, espada dourada cruzada com runa em escudo roxo escuro, estilo SNES 16-bit). Salvo em public/game/icon.png. Atualizei layout.tsx metadata.icons para usar /game/icon.png (icon + apple) e adicionei imagem OpenGraph.
+- Renomeei boss urso: "Ursa Maior, a Anciã" → "Maou Ursão" em data.ts (bear_boss.name). Atualizei toast de vitória em engine.ts ("MAOU URSÃO TOMBA!").
+- Hydration error: confirmado que os atributos conflitantes (bis_skin_checked, bis_size, etc.) são injetados por extensão de navegador (Bitdefender/Similar), NÃO pelo código. suppressHydrationWarning já está em <html> e <body>. Não há como eliminar completamente o warning de uma extensão de terceiros — é cosmético e não afeta o funcionamento.
+
+Stage Summary:
+- Ícone de fantasia ativo: <link rel="icon" href="/game/icon.png"> confirmado no HTML (HTTP 200). Título da aba "Eldoria Online — RPG Souls-like Pixel Art".
+- Boss urso renomeado para "Maou Ursão" — confirmado via engine snapshot.bossName = "Maou Ursão".
+- Lint limpo, sem erros de runtime.

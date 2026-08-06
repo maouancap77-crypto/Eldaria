@@ -19,7 +19,8 @@ export const metadata: Metadata = {
   keywords: ["Eldoria", "RPG", "pixel art", "souls-like", "survival", "dungeon", "2D"],
   authors: [{ name: "Eldoria Online" }],
   icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
+    icon: "/game/icon.png",
+    apple: "/game/icon.png",
   },
   openGraph: {
     title: "Eldoria Online",
@@ -27,6 +28,7 @@ export const metadata: Metadata = {
     url: "https://chat.z.ai",
     siteName: "Eldoria Online",
     type: "website",
+    images: [{ url: "/game/icon.png", width: 1024, height: 1024 }],
   },
   twitter: {
     card: "summary_large_image",

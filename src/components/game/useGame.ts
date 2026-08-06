@@ -16,11 +16,54 @@ const initialSnap: HudSnapshot = {
   ascension: 'none', arrows: 0, holyCd: 0, fireballCd: 0, frostCd: 0, holyAura: 0, nearStructure: null,
 }
 
+// ---- localStorage persistence (no DB needed — works on Vercel) ------------
+const SAVE_KEY = 'eldoria:save'
+const LB_KEY = 'eldoria:leaderboard'
+
+function readSave(): SaveData | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = localStorage.getItem(SAVE_KEY)
+    if (!raw) return null
+    return JSON.parse(raw) as SaveData
+  } catch { return null }
+}
+
+function writeSave(data: SaveData) {
+  if (typeof window === 'undefined') return
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)) } catch { /* quota */ }
+}
+
+function clearSave() {
+  if (typeof window === 'undefined') return
+  try { localStorage.removeItem(SAVE_KEY) } catch { /* noop */ }
+}
+
+function readLeaderboard(): { heroName: string; heroClass: string; level: number; maxZone: string; kills: number; deaths: number; playtime: number; at: number }[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = localStorage.getItem(LB_KEY)
+    if (!raw) return []
+    return JSON.parse(raw)
+  } catch { return [] }
+}
+
+function appendLeaderboard(entry: { heroName: string; heroClass: string; level: number; maxZone: string; kills: number; deaths: number; playtime: number }) {
+  if (typeof window === 'undefined') return
+  try {
+    const list = readLeaderboard()
+    list.push({ ...entry, at: Date.now() })
+    list.sort((a, b) => b.level - a.level || b.kills - a.kills)
+    localStorage.setItem(LB_KEY, JSON.stringify(list.slice(0, 20)))
+  } catch { /* quota */ }
+}
+
 export function useGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const engineRef = useRef<GameEngine | null>(null)
   const [snap, setSnap] = useState<HudSnapshot>(initialSnap)
-  const [hasSave, setHasSave] = useState(false)
+  // check for existing save once on init (lazy initializer — no effect needed)
+  const [hasSave, setHasSave] = useState<boolean>(() => !!readSave())
 
   useEffect(() => {
     if (!canvasRef.current) return
@@ -28,11 +71,6 @@ export function useGame() {
     engineRef.current = engine
     const unsub = engine.subscribe(setSnap)
     engine.start()
-    // check for existing save
-    fetch('/api/save')
-      .then((r) => r.json())
-      .then((d) => { if (d?.data) setHasSave(true) })
-      .catch(() => {})
     return () => {
       unsub()
       engine.dispose()
@@ -40,25 +78,28 @@ export function useGame() {
     }
   }, [])
 
-  const cmd = useCallback((c: EngineCommand) => engineRef.current?.command(c), [])
+  const cmd = useCallback((c: EngineCommand) => {
+    engineRef.current?.command(c)
+    // when returning to title, re-check whether a save exists so the
+    // "Continuar" button appears/disappears correctly.
+    if (c.type === 'quitToTitle') {
+      setTimeout(() => setHasSave(!!readSave()), 50)
+    }
+  }, [])
 
   const startGame = useCallback((heroName: string, cls: HeroClassId) => {
     engineRef.current?.command({ type: 'start', heroName, cls })
   }, [])
 
   const continueGame = useCallback(async () => {
-    try {
-      const r = await fetch('/api/save')
-      const d = await r.json()
-      if (d?.data) {
-        const { GameEngine } = await import('@/lib/game/engine')
-        engineRef.current?.loadSave(d.data as SaveData)
-      }
-    } catch { /* ignore */ }
+    const data = readSave()
+    if (data) {
+      engineRef.current?.loadSave(data)
+    }
   }, [])
 
   const deleteSave = useCallback(async () => {
-    await fetch('/api/save', { method: 'DELETE' })
+    clearSave()
     setHasSave(false)
   }, [])
 
@@ -66,13 +107,9 @@ export function useGame() {
     const e = engineRef.current
     if (!e) return
     const s = e.exportSave()
-    await fetch('/api/leaderboard', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        heroName: s.heroName, heroClass: s.cls, level: s.level,
-        maxZone: s.zone, kills: s.kills, deaths: s.deaths, playtime: Math.floor(s.playtime),
-      }),
+    appendLeaderboard({
+      heroName: s.heroName, heroClass: s.cls, level: s.level,
+      maxZone: s.zone, kills: s.kills, deaths: s.deaths, playtime: Math.floor(s.playtime),
     })
   }, [])
 

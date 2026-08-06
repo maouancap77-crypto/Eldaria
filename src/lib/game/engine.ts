@@ -2586,12 +2586,10 @@ export class GameEngine {
     if (this.screen !== 'game' && this.screen !== 'dead' && this.screen !== 'win') return
     const data = this.exportSave()
     try {
-      fetch('/api/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data }),
-      }).catch(() => {})
-    } catch { /* ignore */ }
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('eldoria:save', JSON.stringify(data))
+      }
+    } catch { /* ignore quota errors */ }
   }
 
   // ---- render -------------------------------------------------------------

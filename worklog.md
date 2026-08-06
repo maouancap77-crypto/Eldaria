@@ -151,3 +151,23 @@ Stage Summary:
   * Play 2: seed=26345, portal em (4,8), 17 inimigos, capela em (49,49), torre em (26,41), bear boss em (60,6), 556 tiles de água (rio procedural)
 - VLM confirmou visualmente: rio/lago horizontal na parte inferior, caminhos cruzando, clusters de árvores e pedras/ruínas em posições variadas — layout único e procedural.
 - Lint limpo, sem erros no console. Área de spawn sempre segura.
+
+---
+Task ID: 7
+Agent: main (Z.ai Code)
+Task: Preparar o projeto para deploy na Vercel (converter persistência de SQLite/Prisma para localStorage, já que a Vercel tem filesystem efêmero).
+
+Work Log:
+- Converti TODO o sistema de save/load de Prisma/SQLite para localStorage:
+  * useGame.ts: readSave/writeSave/clearSave usam localStorage('eldoria:save'). continueGame carrega do localStorage. deleteSave limpa. hasSave checa na inicialização + revalida ao voltar ao título.
+  * engine.ts saveToServer(): agora escreve em window.localStorage em vez de POST /api/save.
+  * Leaderboard também convertido para localStorage('eldoria:leaderboard'), ordenado por nível/abates, top 20.
+- Corrigi bug: hasSave não atualizava após criar um save. Adicionei revalidação no cmd() quando quitToTitle é chamado, para o botão "Continuar" aparecer corretamente.
+- next.config.ts: adicionei allowedDevOrigins para suprimir warnings de cross-origin no preview. Mantive output:"standalone" (ignorado na Vercel, útil para self-hosting).
+- Criei README.md completo com: descrição, stack, como rodar local, e instruções de deploy na Vercel (opções dashboard e CLI).
+- As rotas /api/save e /api/leaderboard ainda existem (não quebram nada) mas não são mais usadas — o jogo é agora 100% client-side para persistência.
+
+Stage Summary:
+- Projeto pronto para Vercel: sem dependência de banco de dados, deploy é só `git push` + importar na Vercel, sem environment variables.
+- Save/load via localStorage verificado: salvou gold=999, "Continuar Jornada" apareceu no título, carregou com gold=999 correto.
+- Lint limpo, sem erros no console. README com instruções passo-a-passo criado.

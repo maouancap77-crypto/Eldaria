@@ -15,10 +15,11 @@ import type {
   ZoneId, Tile, TileType, Player, Enemy, EnemyKind, Projectile, DroppedItem,
   FloatText, Particle, ResourceNode, FarmPlot, CraftingStation, Portal,
   ItemStack, SaveData, HudSnapshot, HeroClassId, Dir, EnemyDef, CraftSkill,
+  SpecialStructure,
 } from './types'
 import {
   drawTile, drawResourceNode, drawCrop, drawPlayer, drawEnemy, drawProjectile,
-  drawDroppedItem, drawStation, drawPortal, drawItemIcon,
+  drawDroppedItem, drawStation, drawPortal, drawItemIcon, drawSpecialStructure,
 } from './sprites'
 
 // ---- seeded RNG -----------------------------------------------------------
@@ -77,6 +78,7 @@ export class GameEngine {
   resources: Record<ZoneId, ResourceNode[]> = { plains: [], dungeon: [] }
   stations: CraftingStation[] = []
   portals: Record<ZoneId, Portal[]> = { plains: [], dungeon: [] }
+  structures: SpecialStructure[] = []
   farmPlots: FarmPlot[] = []
   enemies: Enemy[] = []
   projectiles: Projectile[] = []
@@ -84,6 +86,7 @@ export class GameEngine {
   floats: FloatText[] = []
   particles: Particle[] = []
   killFeed: { id: number; text: string; life: number }[] = []
+  nearStructure: string | null = null
 
   player!: Player
   inventory: ItemStack[] = []
@@ -225,6 +228,8 @@ export class GameEngine {
     if (k === 'j') this.attack('light')
     if (k === 'k') this.startCharge() // hold K to charge heavy; release fires it
     if (k === 'tab') this.toggleLockOn()
+    if (k === 'f') this.useAbilityF()
+    if (k === 'g') this.useAbilityG()
     if (k >= '1' && k <= '6') this.useItem(parseInt(k) - 1)
     if (k === 'q') this.useEquippedPotion()
   }
@@ -505,6 +510,14 @@ export class GameEngine {
     this.resources.dungeon = []
   }
 
+  private spawnStructures() {
+    this.structures = []
+    // chapel in the west (paladin ascension)
+    this.structures.push({ id: 1, type: 'chapel', x: 8 * TILE, y: 22 * TILE, used: false })
+    // wizard tower in the east (mage ascension) — only interacts at night
+    this.structures.push({ id: 2, type: 'tower', x: 56 * TILE, y: 22 * TILE, used: false })
+  }
+
   private spawnEnemies() {
     this.enemies = []
     let id = 1
@@ -523,9 +536,23 @@ export class GameEngine {
         { kind: 'skeleton', x: 8 * TILE, y: 30 * TILE },
         { kind: 'skeleton', x: 56 * TILE, y: 30 * TILE },
         { kind: 'wraith', x: 32 * TILE, y: 56 * TILE },
+        // ---- new enemies ----
+        { kind: 'jaguar', x: 44 * TILE, y: 44 * TILE },
+        { kind: 'jaguar', x: 46 * TILE, y: 46 * TILE },
+        { kind: 'drake', x: 24 * TILE, y: 16 * TILE },
+        { kind: 'vampire', x: 38 * TILE, y: 52 * TILE },
+        { kind: 'vampire', x: 52 * TILE, y: 38 * TILE },
+        { kind: 'lizard_bard', x: 14 * TILE, y: 38 * TILE },
+        { kind: 'lizard_bard', x: 50 * TILE, y: 24 * TILE },
+        // bear boss in a clearing in the far north-east
+        { kind: 'bear_boss', x: 56 * TILE, y: 8 * TILE },
       ]
       for (const p of packs) {
         const e = this.makeEnemy(id++, p.kind, p.x, p.y)
+        if (p.kind === 'bear_boss') {
+          e.isBoss = true
+          e.leash = 9999
+        }
         this.enemies.push(e)
       }
     } else {
@@ -538,6 +565,10 @@ export class GameEngine {
         { kind: 'wraith', x: 20 * TILE, y: 15 * TILE },
         { kind: 'goblin', x: 17 * TILE, y: 9 * TILE },
         { kind: 'goblin', x: 23 * TILE, y: 9 * TILE },
+        // new enemies in the dungeon too
+        { kind: 'vampire', x: 6 * TILE, y: 27 * TILE },
+        { kind: 'vampire', x: 34 * TILE, y: 27 * TILE },
+        { kind: 'jaguar', x: 20 * TILE, y: 14 * TILE },
       ]
       for (const p of packs) {
         this.enemies.push(this.makeEnemy(id++, p.kind, p.x, p.y))
@@ -602,12 +633,14 @@ export class GameEngine {
       dodgeTimer: 0, dodgeCd: 0, iframes: 0, blocking: false, blockHeldTime: 0, parryTimer: 0, hitFlash: 0,
       animTime: 0, moving: false, kills: 0, deaths: 0, playtime: 0, invuln: 0,
       comboCount: 0, comboTimer: 0, chargeTime: 0, lockTarget: -1, poise: 60, stagger: 0,
+      ascension: 'none', holyCd: 0, fireballCd: 0, frostCd: 0, holyAura: 0,
     }
     this.equipped = base.startWeapon
     this.inventory = [...base.startItems.map((s) => ({ ...s }))]
     // everyone gets a hoe to farm
     this.addItem('hoe', 1)
     this.addItem('torch', 1)
+    this.spawnStructures()
     this.spawnEnemies()
     this.screen = 'game'
     this.paused = false
@@ -641,7 +674,12 @@ export class GameEngine {
       dodgeTimer: 0, dodgeCd: 0, iframes: 0, blocking: false, blockHeldTime: 0, parryTimer: 0, hitFlash: 0,
       animTime: 0, moving: false, kills: data.kills, deaths: data.deaths, playtime: data.playtime, invuln: 0,
       comboCount: 0, comboTimer: 0, chargeTime: 0, lockTarget: -1, poise: 60, stagger: 0,
+      ascension: data.ascension || 'none', holyCd: 0, fireballCd: 0, frostCd: 0, holyAura: 0,
     }
+    this.spawnStructures()
+    // restore structure used-state from save
+    if (data.chapelUsed) { const c = this.structures.find((s) => s.type === 'chapel'); if (c) c.used = true }
+    if (data.towerUsed) { const tw = this.structures.find((s) => s.type === 'tower'); if (tw) tw.used = true }
     this.spawnEnemies()
     if (this.bossKilled && this.bossRef) {
       this.bossRef.alive = false
@@ -680,6 +718,9 @@ export class GameEngine {
       farmPlots: this.farmPlots,
       bossKilled: this.bossKilled,
       seed: this.seed,
+      ascension: p.ascension,
+      chapelUsed: this.structures.some((s) => s.type === 'chapel' && s.used),
+      towerUsed: this.structures.some((s) => s.type === 'tower' && s.used),
     }
   }
 
@@ -857,6 +898,11 @@ export class GameEngine {
       this.changeZone()
       return
     }
+    // special structures: chapel (paladin) & tower (mage)
+    if (this.nearStructure) {
+      this.interactStructure()
+      return
+    }
     // try gathering nearby resource
     const p = this.player
     let best: ResourceNode | null = null
@@ -908,6 +954,178 @@ export class GameEngine {
       }
     }
     this.flashToast('Nada para interagir', 'info')
+  }
+
+  // ---- ascension: chapel (paladin) & tower (mage) -------------------------
+  interactStructure() {
+    const p = this.player
+    const s = this.structures.find((st) => Math.hypot(st.x - p.x, st.y - p.y) < 50)
+    if (!s) return
+    if (s.type === 'chapel') {
+      if (p.ascension !== 'none') {
+        this.flashToast(`Sua senda já está traçada: ${p.ascension === 'paladin' ? 'Paladino' : 'Mago'}`, 'info')
+        return
+      }
+      if (s.used) {
+        this.flashToast('A capela já concedeu sua bênção a outro.', 'info')
+        return
+      }
+      s.used = true
+      p.ascension = 'paladin'
+      p.maxHp = Math.floor(p.maxHp * 1.2)
+      p.hp = p.maxHp
+      p.holyCd = 0
+      p.holyAura = 0
+      this.flashToast('⛪ Ajoelhando-se, a luz divina imbui seu espírito...', 'good')
+      this.message = 'PADRINHO DA LUZ\n\nVocê foi abençoado pela Capela. Doravante é um PALADINO.\nPressione F para Golpe Sagrado (Smite Evil) — dano massivo a mortos-vivos e demônios.\nPressione G para Aura Sagrada — regenera HP e empurra inimigos por 8s.'
+      this.spawnParticles(p.x, p.y, 30, '#fff3a0')
+      this.spawnFloat(p.x, p.y - 30, 'ASCENSÃO: PALADINO!', '#f1c40f')
+      this.shake(4, 0.4)
+    } else {
+      // tower — only works at night
+      if (!this.isNight()) {
+        this.flashToast('A torre dorme. Volte à noite...', 'info')
+        return
+      }
+      if (p.ascension !== 'none') {
+        this.flashToast(`Sua senda já está traçada: ${p.ascension === 'paladino' ? 'Paladino' : 'Mago'}`, 'info')
+        return
+      }
+      if (s.used) {
+        this.flashToast('A torre já revelou seus segredos a outro.', 'info')
+        return
+      }
+      s.used = true
+      p.ascension = 'mage'
+      p.maxMana = Math.floor(p.maxMana * 1.5)
+      p.mana = p.maxMana
+      p.fireballCd = 0
+      p.frostCd = 0
+      this.flashToast('🔮 A torre pulsa com energia arcana...', 'good')
+      this.message = 'ARTES SECRETAS DO URANISMO\n\nFostes introduzido às artes secretas do uranismo! Meus parabéns, és um MAGO.\nPressione F para Bola de Fogo — projétil explosivo (custa 25 de mana).\nPressione G para Nova de Gelo — congela inimigos próximos (custa 40 de mana).'
+      this.spawnParticles(p.x, p.y, 30, '#9b59b6')
+      this.spawnFloat(p.x, p.y - 30, 'ASCENSÃO: MAGO!', '#9b59b6')
+      this.shake(4, 0.4)
+    }
+  }
+
+  // ability key F
+  useAbilityF() {
+    const p = this.player
+    if (this.screen !== 'game' || this.paused || p.stagger > 0) return
+    if (p.ascension === 'paladin') this.castHolyStrike()
+    else if (p.ascension === 'mage') this.castFireball()
+  }
+  // ability key G
+  useAbilityG() {
+    const p = this.player
+    if (this.screen !== 'game' || this.paused || p.stagger > 0) return
+    if (p.ascension === 'paladin') this.castHolyAura()
+    else if (p.ascension === 'mage') this.castFrostNova()
+  }
+
+  private castHolyStrike() {
+    const p = this.player
+    if (p.holyCd > 0) { this.flashToast('Golpe Sagrado recarregando', 'bad'); return }
+    if (p.mana < 20) { this.flashToast('Mana insuficiente (20)', 'bad'); return }
+    p.mana -= 20
+    p.holyCd = 4
+    // radiant melee burst: damages all enemies in a wide arc, double vs undead
+    const ang = this.dirAngle(p.dir)
+    let hit = false
+    for (const e of this.enemies) {
+      if (!e.alive) continue
+      const dx = e.x - p.x, dy = e.y - p.y
+      const dist = Math.hypot(dx, dy)
+      if (dist > 64) continue
+      let a = Math.atan2(dy, dx)
+      let diff = a - ang
+      while (diff > Math.PI) diff -= Math.PI * 2
+      while (diff < -Math.PI) diff += Math.PI * 2
+      if (Math.abs(diff) > 1.2) continue
+      // undead (skeleton, wraith, vampire, boss) take double
+      const undead = e.kind === 'skeleton' || e.kind === 'wraith' || e.kind === 'vampire' || e.kind === 'boss'
+      const dmg = Math.round((50 + p.level * 4) * (undead ? 2 : 1))
+      this.damageEnemy(e, dmg, dx, dy, true)
+      hit = true
+    }
+    // holy beam visual
+    this.spawnParticles(p.x + Math.cos(ang) * 30, p.y + Math.sin(ang) * 30, 20, '#fff3a0')
+    this.spawnFloat(p.x, p.y - 28, 'GOLPE SAGRADO!', '#fff3a0')
+    this.shake(5, 0.25)
+    this.hitstop = 0.08
+  }
+  private castHolyAura() {
+    const p = this.player
+    if (p.holyAura > 0) { this.flashToast('Aura Sagrada ativa', 'info'); return }
+    if (p.mana < 40) { this.flashToast('Mana insuficiente (40)', 'bad'); return }
+    p.mana -= 40
+    p.holyAura = 8 // 8 seconds of aura
+    // push enemies back
+    for (const e of this.enemies) {
+      if (!e.alive) continue
+      const dx = e.x - p.x, dy = e.y - p.y
+      const dist = Math.hypot(dx, dy) || 1
+      if (dist < 120) {
+        e.knockX += (dx / dist) * 200
+        e.knockY += (dy / dist) * 200
+      }
+    }
+    this.spawnParticles(p.x, p.y, 30, '#fff3a0')
+    this.spawnFloat(p.x, p.y - 28, 'AURA SAGRADA!', '#fff3a0')
+    this.shake(3, 0.3)
+  }
+  private castFireball() {
+    const p = this.player
+    if (p.fireballCd > 0) { this.flashToast('Bola de Fogo recarregando', 'bad'); return }
+    if (p.mana < 25) { this.flashToast('Mana insuficiente (25)', 'bad'); return }
+    p.mana -= 25
+    p.fireballCd = 1.5
+    const ang = this.dirAngle(p.dir)
+    const dmg = 45 + p.level * 3
+    this.projectiles.push({
+      id: this.nextId++,
+      x: p.x + Math.cos(ang) * 18,
+      y: p.y - 6 + Math.sin(ang) * 18,
+      vx: Math.cos(ang) * 300,
+      vy: Math.sin(ang) * 300,
+      life: 1.4,
+      damage: dmg,
+      fromPlayer: true,
+      kind: 'fireball',
+    })
+    this.spawnFloat(p.x, p.y - 28, 'BOLA DE FOGO!', '#e67e22')
+  }
+  private castFrostNova() {
+    const p = this.player
+    if (p.frostCd > 0) { this.flashToast('Nova de Gelo recarregando', 'bad'); return }
+    if (p.mana < 40) { this.flashToast('Mana insuficiente (40)', 'bad'); return }
+    p.mana -= 40
+    p.frostCd = 6
+    // AoE: damage + stagger all enemies in radius
+    for (const e of this.enemies) {
+      if (!e.alive) continue
+      const dx = e.x - p.x, dy = e.y - p.y
+      const dist = Math.hypot(dx, dy)
+      if (dist > 140) continue
+      this.damageEnemy(e, 30 + p.level * 2, dx, dy, false)
+      // freeze: stagger them
+      e.stagger = e.staggerMax
+      e.state = 'hurt'
+      e.stateTimer = 2
+      this.spawnParticles(e.x, e.y, 8, '#74b9ff')
+    }
+    // ring visual
+    for (let i = 0; i < 30; i++) {
+      const a = (i / 30) * Math.PI * 2
+      this.particles.push({
+        x: p.x + Math.cos(a) * 10, y: p.y + Math.sin(a) * 10,
+        vx: Math.cos(a) * 200, vy: Math.sin(a) * 200,
+        life: 0.5, maxLife: 0.5, color: '#74b9ff', size: 3, gravity: 0,
+      })
+    }
+    this.spawnFloat(p.x, p.y - 28, 'NOVA DE GELO!', '#74b9ff')
+    this.shake(4, 0.3)
   }
 
   plantSeed() {
@@ -1038,6 +1256,18 @@ export class GameEngine {
     }
     // ranged weapons spawn projectile at the moment of swing
     if (this.equipped === 'bow' || this.equipped === 'staff') {
+      // bow requires arrows (limited ammo)
+      if (this.equipped === 'bow') {
+        if (this.countItem('arrow') <= 0) {
+          this.flashToast('Sem flechas! Fabrique na bancada', 'bad')
+          // refund stamina so the player can immediately try a melee option
+          p.stamina += cost
+          p.attacking = 0
+          p.attackType = null
+          return
+        }
+        this.removeItem('arrow', 1)
+      }
       const speed = this.equipped === 'bow' ? 460 : 380
       const ang = this.dirAngle(p.dir)
       const comboMul = 1 + p.comboCount * 0.06
@@ -1120,7 +1350,11 @@ export class GameEngine {
       p.lockTarget = next.id
     }
     const t = this.enemies.find((e) => e.id === p.lockTarget)
-    if (t) this.flashToast(`Mirando: ${ENEMIES[t.kind].name}`, 'info')
+    if (t) {
+      // immediately face the locked target so the player can attack without delay
+      p.dir = this.dirFromVec(t.x - p.x, t.y - p.y)
+      this.flashToast(`Mirando: ${ENEMIES[t.kind].name}`, 'info')
+    }
   }
 
   private dirAngle(dir: Dir): number {
@@ -1267,13 +1501,19 @@ export class GameEngine {
     this.spawnParticles(e.x, e.y, 14, def.color)
     this.killFeed.unshift({ id: this.nextId++, text: `${def.name} abatido`, life: 4 })
     if (this.killFeed.length > 5) this.killFeed.pop()
-    if (e.isBoss) {
+    if (e.kind === 'boss') {
+      // dungeon boss = victory condition
       this.bossKilled = true
       this.bossRef = null
       this.flashToast('VOCÊ DERROTOU O CAVALEIRO SILENCIOSO!', 'good')
       this.message = 'VITÓRIA! O Silêncio se quebra. Você forjou seu destino em Eldoria.'
       this.screen = 'win'
       this.submitLeaderboard()
+    } else if (e.kind === 'bear_boss') {
+      // bear boss is a world boss — big reward but not victory
+      this.flashToast('URSA MAIOR TOMBA! Espólios lendários!', 'good')
+      this.shake(8, 0.6)
+      this.spawnParticles(e.x, e.y, 40, '#f1c40f')
     }
   }
 
@@ -1555,6 +1795,16 @@ export class GameEngine {
     if (p.hitFlash > 0) p.hitFlash -= dt
     // poise slowly recovers
     if (p.poise < 60) p.poise = Math.min(60, p.poise + 15 * dt)
+    // ability cooldowns tick down
+    if (p.holyCd > 0) p.holyCd -= dt
+    if (p.fireballCd > 0) p.fireballCd -= dt
+    if (p.frostCd > 0) p.frostCd -= dt
+    // paladin holy aura: regen HP + visual particles
+    if (p.holyAura > 0) {
+      p.holyAura -= dt
+      if (p.hp < p.maxHp) p.hp = Math.min(p.maxHp, p.hp + 8 * dt)
+      if (Math.random() < 0.3) this.spawnParticles(p.x, p.y - 4, 1, '#fff3a0')
+    }
 
     // apply velocity with collision
     this.moveEntity(p, p.vx * dt, p.vy * dt, 7)
@@ -1742,6 +1992,24 @@ export class GameEngine {
             e.dir = this.dirFromVec(dx, dy)
             break
           }
+          // DRAKE: fire breath cone from medium range
+          if (e.kind === 'drake' && dist < 200 && dist > 50 && e.rangedCd <= 0) {
+            e.state = 'windup'
+            e.stateTimer = def.windup
+            e.attackTargetX = p.x
+            e.attackTargetY = p.y
+            e.dir = this.dirFromVec(dx, dy)
+            e.vx = 0; e.vy = 0
+            break
+          }
+          // BEAR BOSS: big claw swipe when close
+          if (e.kind === 'bear_boss' && dist < def.reach + 20 && e.attackCd <= 0) {
+            e.state = 'windup'
+            e.stateTimer = def.windup
+            e.dir = this.dirFromVec(dx, dy)
+            e.vx = 0; e.vy = 0
+            break
+          }
           if (dist <= def.reach + 6 && e.attackCd <= 0) {
             // melee attack
             e.state = 'windup'
@@ -1787,6 +2055,21 @@ export class GameEngine {
               e.vx = Math.cos(ang) * 340
               e.vy = Math.sin(ang) * 340
               e.lungeCd = 3
+            } else if (e.kind === 'drake') {
+              // fire breath: spawn a spread of fire projectiles (cone)
+              e.vx = 0; e.vy = 0
+              for (let i = -2; i <= 2; i++) {
+                const a = ang + i * 0.18
+                this.projectiles.push({
+                  id: this.nextId++, x: e.x + Math.cos(a) * 16, y: e.y - 6 + Math.sin(a) * 16,
+                  vx: Math.cos(a) * 260, vy: Math.sin(a) * 260,
+                  life: 1.2, damage: def.damage, fromPlayer: false, kind: 'fire',
+                })
+              }
+              this.spawnParticles(e.x + Math.cos(ang) * 20, e.y + Math.sin(ang) * 20, 12, '#e67e22')
+              e.rangedCd = 4
+              e.state = 'recover'
+              e.stateTimer = def.recovery
             } else if (e.isBoss) {
               // boss AoE slam — big lunge + shockwave
               e.vx = Math.cos(ang) * 220
@@ -1804,9 +2087,23 @@ export class GameEngine {
           e.stateTimer -= dt
           // active hit detection
           const adx = p.x - e.x, ady = p.y - e.y
-          const reach = def.reach + (e.isBoss ? 20 : 12)
+          const reach = def.reach + (e.isBoss ? 24 : 12)
           if (Math.hypot(adx, ady) < reach) {
-            this.damagePlayer(def.damage * (e.isBoss ? 1.1 : 1), e.x, e.y)
+            const dmgMul = e.isBoss ? 1.15 : 1
+            const hpBefore = p.hp
+            this.damagePlayer(def.damage * dmgMul, e.x, e.y)
+            // VAMPIRE lifesteal: heals for a portion of damage dealt
+            if (e.kind === 'vampire' && p.hp < hpBefore) {
+              const heal = Math.round((hpBefore - p.hp) * 0.6)
+              e.hp = Math.min(e.maxHp, e.hp + heal)
+              this.spawnFloat(e.x, e.y - 22, `+${heal}`, '#e74c3c')
+              this.spawnParticles(e.x, e.y - 4, 4, '#8e1b1b')
+            }
+            // BEAR BOSS: heavy knockback + screen shake
+            if (e.kind === 'bear_boss') {
+              this.shake(7, 0.35)
+              this.spawnParticles(p.x, p.y, 12, '#7e5109')
+            }
           }
           this.moveEntity(e, e.vx * dt, e.vy * dt, 6)
           e.vx *= 0.9
@@ -1814,7 +2111,7 @@ export class GameEngine {
           if (e.stateTimer <= 0) {
             e.state = 'recover'
             e.stateTimer = def.recovery
-            e.attackCd = e.isBoss ? 1.2 : 0.8
+            e.attackCd = e.isBoss ? 1.5 : 0.8
           }
           break
         }
@@ -1948,17 +2245,33 @@ export class GameEngine {
     this.nearInteract = null
     if (this.nearPortal) this.nearInteract = `Entrar: ${this.nearPortal}`
     else {
-      for (const r of this.resources[this.zone]) {
-        if (!r.alive) continue
-        if (Math.hypot(r.x - p.x, r.y - p.y) < 36) {
-          this.nearInteract = `Coletar (${r.type})`
+      // special structures (chapel/tower)
+      this.nearStructure = null
+      for (const s of this.structures) {
+        if (Math.hypot(s.x - p.x, s.y - p.y) < 50) {
+          this.nearStructure = s.type
+          if (s.type === 'chapel') {
+            this.nearInteract = p.ascension === 'none' && !s.used ? 'Ajoelhar na Capela (E) — Paladino' : 'Capela (E)'
+          } else {
+            if (!this.isNight()) this.nearInteract = 'Torre adormecida — volte à noite'
+            else this.nearInteract = p.ascension === 'none' && !s.used ? 'Entrar na Torre (E) — Mago' : 'Torre (E)'
+          }
           break
         }
       }
       if (!this.nearInteract) {
-        const tx = Math.floor(p.x / TILE), ty = Math.floor(p.y / TILE)
-        const plot = this.farmPlots.find((f) => f.tileX === tx && f.tileY === ty)
-        if (plot) this.nearInteract = plot.stage >= 3 ? 'Colher (E)' : 'Interagir (E)'
+        for (const r of this.resources[this.zone]) {
+          if (!r.alive) continue
+          if (Math.hypot(r.x - p.x, r.y - p.y) < 36) {
+            this.nearInteract = `Coletar (${r.type})`
+            break
+          }
+        }
+        if (!this.nearInteract) {
+          const tx = Math.floor(p.x / TILE), ty = Math.floor(p.y / TILE)
+          const plot = this.farmPlots.find((f) => f.tileX === tx && f.tileY === ty)
+          if (plot) this.nearInteract = plot.stage >= 3 ? 'Colher (E)' : 'Interagir (E)'
+        }
       }
     }
   }
@@ -2050,6 +2363,7 @@ export class GameEngine {
     this.renderResourcesBelow()
     this.renderFarm()
     this.renderStations()
+    this.renderStructures()
     this.renderPortals()
     this.renderDrops()
     // entities sorted by y
@@ -2264,6 +2578,33 @@ export class GameEngine {
     }
   }
 
+  private renderStructures() {
+    const ctx = this.ctx
+    for (const s of this.structures) {
+      // tower only visible/interactable at night; during day show faint silhouette
+      if (s.type === 'tower' && !this.isNight()) {
+        ctx.globalAlpha = 0.25
+      }
+      drawSpecialStructure(ctx, s.type, s.x, s.y, this.playtime, s.used)
+      ctx.globalAlpha = 1
+      // label
+      ctx.fillStyle = s.type === 'chapel' ? '#f1c40f' : '#9b59b6'
+      ctx.font = 'bold 10px monospace'
+      ctx.textAlign = 'center'
+      const label = s.type === 'chapel' ? 'Capela' : 'Torre Arcana'
+      ctx.fillText(label, s.x, s.y - (s.type === 'chapel' ? 34 : 50))
+      // "kneel/enter" prompt beacon when near & unused
+      if (Math.hypot(s.x - this.player.x, s.y - this.player.y) < 50 && !s.used && this.player.ascension === 'none') {
+        const canUse = s.type === 'chapel' || this.isNight()
+        if (canUse) {
+          ctx.fillStyle = `rgba(241,196,15,${0.5 + Math.sin(this.playtime * 6) * 0.3})`
+          ctx.font = 'bold 11px monospace'
+          ctx.fillText(s.type === 'chapel' ? '↓ Ajoelhar (E) ↓' : '↓ Entrar (E) ↓', s.x, s.y - (s.type === 'chapel' ? 46 : 62))
+        }
+      }
+    }
+  }
+
   private renderPortals() {
     for (const p of this.portals[this.zone]) {
       drawPortal(this.ctx, p.x, p.y, p.w, p.h, this.playtime, p.label)
@@ -2319,7 +2660,14 @@ export class GameEngine {
   // ---- snapshot -----------------------------------------------------------
   private snapshot(): HudSnapshot {
     const p = this.player
-    const boss = this.bossRef && this.bossRef.alive ? this.bossRef : null
+    // show boss bar for the nearest alive boss (dungeon boss or bear boss) within sight
+    let boss: Enemy | null = this.bossRef && this.bossRef.alive ? this.bossRef : null
+    if (!boss) {
+      for (const e of this.enemies) {
+        if (!e.alive || !e.isBoss) continue
+        if (Math.hypot(e.x - p.x, e.y - p.y) < 500) { boss = e; break }
+      }
+    }
     return {
       screen: this.screen,
       cls: this.cls,
@@ -2346,7 +2694,7 @@ export class GameEngine {
       nearPortal: this.nearPortal,
       nearInteract: this.nearInteract,
       bossHp: boss ? boss.hp / boss.maxHp : null,
-      bossName: boss ? ENEMIES.boss.name : null,
+      bossName: boss ? ENEMIES[boss.kind].name : null,
       kills: p?.kills ?? 0,
       deaths: p?.deaths ?? 0,
       craftLevels: this.craftLevels,
@@ -2362,6 +2710,13 @@ export class GameEngine {
       musicEnabled: this.musicEnabled,
       musicMood: this.musicMood,
       parryReady: (p?.parryTimer ?? 0) > 0,
+      ascension: p?.ascension ?? 'none',
+      arrows: this.countItem('arrow'),
+      holyCd: p?.holyCd ?? 0,
+      fireballCd: p?.fireballCd ?? 0,
+      frostCd: p?.frostCd ?? 0,
+      holyAura: p?.holyAura ?? 0,
+      nearStructure: this.nearStructure,
     }
   }
 }

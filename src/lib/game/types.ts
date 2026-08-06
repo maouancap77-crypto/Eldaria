@@ -112,6 +112,11 @@ export type EnemyKind =
   | 'skeleton'
   | 'wolf'
   | 'wraith'
+  | 'jaguar'   // onça humanóide
+  | 'drake'    // dragonar (drake rider)
+  | 'vampire'
+  | 'lizard_bard' // lagarto bardo
+  | 'bear_boss'    // boss urso
   | 'boss'
 
 export interface EnemyDef {
@@ -205,6 +210,22 @@ export interface Player {
   lockTarget: number // enemy id, -1 = none
   poise: number // player poise (stagger resistance)
   stagger: number // >0 means staggered (can't act)
+  // ascension: gained from special shrines
+  ascension: 'none' | 'paladin' | 'mage'
+  // ability cooldowns (seconds until ready again)
+  holyCd: number    // paladin Smite Evil / holy strike
+  fireballCd: number // mage fireball
+  frostCd: number    // mage frost nova
+  holyAura: number   // >0: paladin aura active (regen + bonus damage)
+}
+
+// special structures in the world: chapel (paladin) & tower (mage)
+export interface SpecialStructure {
+  id: number
+  type: 'chapel' | 'tower'
+  x: number
+  y: number
+  used: boolean
 }
 
 export type EnemyState =
@@ -359,6 +380,9 @@ export interface SaveData {
   farmPlots: FarmPlot[]
   bossKilled: boolean
   seed: number
+  ascension: 'none' | 'paladin' | 'mage'
+  chapelUsed: boolean
+  towerUsed: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -406,4 +430,11 @@ export interface HudSnapshot {
   musicEnabled: boolean
   musicMood: 'calm' | 'combat' | 'dungeon'
   parryReady: boolean
+  ascension: 'none' | 'paladin' | 'mage'
+  arrows: number
+  holyCd: number
+  fireballCd: number
+  frostCd: number
+  holyAura: number
+  nearStructure: string | null
 }

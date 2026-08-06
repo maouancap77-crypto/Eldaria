@@ -10,7 +10,7 @@ export function spriteFor(id: string): string {
     stew: 'it_stew', water_bottle: 'it_water', hp_potion: 'it_hppot', mp_potion: 'it_mppot',
     antidote: 'it_antidote', wood: 'it_wood', stone: 'it_stone', fiber: 'it_fiber', herb: 'it_herb',
     iron_ore: 'it_iron', coal: 'it_coal', iron_bar: 'it_ironbar', hide: 'it_hide', bone: 'it_bone',
-    essence: 'it_essence', seed_crop: 'it_seed', torch: 'it_torch', crown: 'it_crown',
+    essence: 'it_essence', seed_crop: 'it_seed', torch: 'it_torch', crown: 'it_crown', arrow: 'it_arrow',
     rusty_sword: 'wpn_sword', iron_sword: 'wpn_sword2', bone_axe: 'wpn_axe', staff: 'wpn_staff',
     bow: 'wpn_bow', dagger: 'wpn_dagger', legendary_blade: 'wpn_legend',
     hoe: 'tool_hoe', axe: 'tool_axe', pickaxe: 'tool_pick',

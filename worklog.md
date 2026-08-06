@@ -72,3 +72,37 @@ Stage Summary:
 - Procedural fantasy music plays with adaptive mood (calm/combat/dungeon), toggleable.
 - Verified via Agent Browser: 62 FPS, combo counter shows (2 COMBO), lock-on toast ("Mirando: Limo Verde"), music toggle button works (ON→OFF), wraith fires projectiles, charged heavy kills enemies, no console/hydration errors.
 - Lint clean; controls updated: WASD move · J/Click light · K/RMB(hold) heavy/charge · Space dodge · Shift block/parry · Tab lock-on · E interact.
+
+---
+Task ID: 4
+Agent: main (Z.ai Code)
+Task: Debug completo + sistema de arco com flechas + novos inimigos (onça, dragonar, vampiro, lagarto bardo, boss urso) + capela do paladino + torre noturna do mago.
+
+Work Log:
+- DEBUG COMPLETO via Agent Browser (testei mira, combate, música, farming, crafting, save/load, esquiva, parry, charge):
+  * Bug encontrado: arco atirava sem flechas (sem sistema de munição).
+  * Bug encontrado: lock-on não virava o jogador para o alvo imediatamente ao travar.
+  * Bug confirmado como falso alarme: craft com estação errada (a verificação funciona, foi erro de teste).
+  * Bug confirmado como falso alarme: música travada em combat (transiciona para calm corretamente).
+  * Comportamento correto: esquiva, parry, charge, boss dead-check, save/load — tudo funciona.
+- Corrigi lock-on: toggleLockOn agora vira o jogador para o alvo imediatamente (dir = dirFromVec).
+- Sistema de arco com flechas: adicionado item 'arrow' (max 99), sprite it_arrow, recipe r_arrows (10 flechas = 2 wood + 1 fiber na bancada). Arqueiro começa com 30 flechas. attack() consome 1 flecha por tiro e bloqueia se sem flechas (refunda stamina). HUD mostra contagem de flechas quando arco equipado.
+- Novos inimigos (5 + 1 boss):
+  * Guerreiro Onça (jaguar): humanóide dourado com lança, investida rápida.
+  * Dragonar (drake): drako vermelho montado, cospe cone de fogo (5 projéteis em leque), asas batem.
+  * Vampiro: capa vermelha + presas, drena vida (lifesteal 60% do dano causado), flutua.
+  * Lagarto Bardo: azul com lira, solta notas musicais ♪ quando idle.
+  * Ursa Maior (bear_boss): boss urso gigante (900 HP), garras em área, knockback pesado + screen shake, barra de boss própria. Dropa 6 hide + 5 raw_meat + 4 essence + 3 hp_potion + 6 bone.
+- Capela do Paladino: estrutura especial no oeste. Interagir (E) ajoelha e concede ascensão 'paladin' (+20% max HP, full heal). Mensagem: "PADRINHO DA LUZ". Habilita F=Golpe Sagrado (dano massivo, 2x vs mortos-vivos, 20 mana, cd 4s) e G=Aura Sagrada (regen HP 8s + empurra inimigos, 40 mana).
+- Torre Arcana do Mago: estrutura no leste, SÓ funciona à noite (de dia: "A torre dorme. Volte à noite..."). À noite interagir concede ascensão 'mage' (+50% max Mana, full mana). Mensagem: "Fostes introduzido às artes secretas do uranismo! Meus parabéns, és um MAGO." Habilita F=Bola de Fogo (projétil explosivo, 25 mana, cd 1.5s) e G=Nova de Gelo (AoE que congela+staggers inimigos, 40 mana, cd 6s).
+- Ascensão é mutuamente exclusiva (só pode ser paladin OU mage). Salva no SaveData (ascension, chapelUsed, towerUsed).
+- HUD atualizada: badge de ascensão + barra de habilidades com cooldowns, contagem de flechas, controles F/G.
+- Sprite 'fireball' adicionado (núcleo branco→amarelo→laranja→vermelho). Função drawSpecialStructure para capela (cruz dourada + vitral brilhante) e torre (cristal arcano pulsante + janelas roxas).
+
+Stage Summary:
+- Todos os bugs encontrados no debug foram corrigidos (lock-on facing, bow ammo).
+- 5 novos inimigos + 1 boss urso adicionados com sprites pixel-art únicos e IA distinta (drake fire-breath, vampire lifesteal, bear AoE).
+- Sistema de ascensão (paladin/mage) com 4 habilidades mágicas (Golpe Sagrado, Aura Sagrada, Bola de Fogo, Nova de Gelo) com custo de mana e cooldowns.
+- Capela e Torre Arcana como estruturas mundiais com sprites próprios.
+- Verificado via Agent Browser: arqueiro começa com 30 flechas e consome 1 por tiro (bloqueia sem flechas), lock-on vira para o alvo imediatamente, capela concede paladino (+20% HP, Golpe Sagrado 108 dano em esqueleto), torre à noite concede mago (Bola de Fogo + Nova de Gelo), bear boss visível com barra "Ursa Maior, a Anciã", 61 FPS mantido, sem erros no console.
+- Lint limpo. Controles: WASD · J/Click · K/RMB(hold) · Shift · Tab · E · F/G habilidades · I · C · Esc.

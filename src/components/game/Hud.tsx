@@ -68,6 +68,33 @@ export function Hud({ s, onUseItem, onToggleMusic }: Props) {
           <span className="text-[9px] text-amber-100/50 w-6">XP</span>
           <div className="flex-1"><Bar value={s.xp} max={s.xpNext} color="#9b59b6" h={4} /></div>
         </div>
+        {/* Arrow count (when bow equipped) */}
+        {s.equipped === 'bow' && (
+          <div className="flex items-center gap-1 pix-slot px-1.5 py-0.5">
+            <ItemIcon sprite="it_arrow" size={14} />
+            <span className="text-[10px] font-bold text-amber-200">{s.arrows}</span>
+            <span className="text-[8px] text-amber-100/50">flechas</span>
+          </div>
+        )}
+        {/* Ascension badge + abilities */}
+        {s.ascension !== 'none' && (
+          <div className="pix-slot px-2 py-1 space-y-0.5">
+            <div className="text-[9px] font-bold tracking-wider" style={{ color: s.ascension === 'paladin' ? '#f1c40f' : '#9b59b6' }}>
+              {s.ascension === 'paladin' ? '⚔ PALADINO' : '🔮 MAGO'}
+            </div>
+            {s.ascension === 'paladin' ? (
+              <>
+                <AbilityRow label="F" name="Golpe Sagrado" cd={s.holyCd} maxCd={4} color="#f1c40f" />
+                <AbilityRow label="G" name="Aura Sagrada" cd={0} maxCd={1} color="#fff3a0" active={s.holyAura > 0} activeLabel={`${Math.ceil(s.holyAura)}s`} />
+              </>
+            ) : (
+              <>
+                <AbilityRow label="F" name="Bola de Fogo" cd={s.fireballCd} maxCd={1.5} color="#e67e22" />
+                <AbilityRow label="G" name="Nova de Gelo" cd={s.frostCd} maxCd={6} color="#74b9ff" />
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Top-right: zone + time + gold */}
@@ -195,7 +222,7 @@ export function Hud({ s, onUseItem, onToggleMusic }: Props) {
         <div><span className="text-amber-300">WASD</span> mover · <span className="text-amber-300">J/Click</span> golpe</div>
         <div><span className="text-amber-300">K/Dir(segure)</span> pesado/carregar · <span className="text-amber-300">Espaço</span> esquiva</div>
         <div><span className="text-amber-300">Shift</span> bloquear/parry · <span className="text-amber-300">Tab</span> mirar</div>
-        <div><span className="text-amber-300">E</span> interagir · <span className="text-amber-300">I</span> inventário · <span className="text-amber-300">C</span> criar</div>
+        <div><span className="text-amber-300">E</span> interagir · <span className="text-amber-300">F/G</span> habilidades</div>
       </div>
 
       {/* Station / portal hint */}
@@ -219,6 +246,30 @@ function Survival({ icon, label, value, color, warn }: { icon: string; label: st
       <div className="pix-bar mt-0.5" style={{ height: 3 }}>
         <div className="h-full" style={{ width: `${value}%`, background: color }} />
       </div>
+    </div>
+  )
+}
+
+function AbilityRow({ label, name, cd, maxCd, color, active, activeLabel }: {
+  label: string; name: string; cd: number; maxCd: number; color: string; active?: boolean; activeLabel?: string
+}) {
+  const ready = cd <= 0 && !active
+  return (
+    <div className="flex items-center gap-1 text-[8px]">
+      <span className={`font-bold w-3 ${ready ? 'text-amber-300' : 'text-amber-100/30'}`}>{label}</span>
+      <span className={`flex-1 truncate ${ready ? 'text-amber-100/80' : 'text-amber-100/40'}`}>{name}</span>
+      {active && activeLabel ? (
+        <span className="font-bold" style={{ color }}>{activeLabel}</span>
+      ) : ready ? (
+        <span className="text-green-400">✓</span>
+      ) : (
+        <span className="text-amber-100/40">{Math.ceil(cd)}s</span>
+      )}
+      {cd > 0 && (
+        <div className="pix-bar w-8" style={{ height: 2 }}>
+          <div className="h-full" style={{ width: `${(1 - cd / maxCd) * 100}%`, background: color }} />
+        </div>
+      )}
     </div>
   )
 }

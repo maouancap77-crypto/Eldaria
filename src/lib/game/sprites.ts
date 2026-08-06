@@ -637,6 +637,190 @@ export function drawEnemy(
       px(ctx, x + 11 * s, y + 18 * s + swing, 6 * s, 3 * s, '#8a6a2a')
       break
     }
+    case 'jaguar': {
+      // Onça humanóide: corpo peludo dourado, cabeça de onça com manchas, lança
+      const stp = Math.sin(animTime * 9)
+      // legs
+      px(ctx, x - 4, y + 6 + (stp > 0 ? 0 : 1), 3, 6, c(dark))
+      px(ctx, x + 1, y + 6 + (stp < 0 ? 0 : 1), 3, 6, c(dark))
+      // loincloth body
+      px(ctx, x - 5, y - 3, 10, 10, c(color))
+      px(ctx, x - 5, y + 3, 10, 3, c('#7e5109')) // belt
+      // arms
+      px(ctx, x - 8, y - 1, 3, 6, c(color))
+      px(ctx, x + 5, y - 1, 3, 6, c(color))
+      // head (jaguar)
+      px(ctx, x - 5, y - 12, 10, 9, c(color))
+      // ears
+      px(ctx, x - 6, y - 14, 2, 3, c(color))
+      px(ctx, x + 4, y - 14, 2, 3, c(color))
+      // spots
+      px(ctx, x - 3, y - 11, 2, 2, c(dark))
+      px(ctx, x + 2, y - 9, 2, 2, c(dark))
+      // eyes (fierce)
+      px(ctx, x - 3, y - 8, 2, 2, '#f1c40f')
+      px(ctx, x + 1, y - 8, 2, 2, '#f1c40f')
+      // snout
+      px(ctx, x - 1, y - 5, 3, 2, c(dark))
+      // spear (held forward when windup/attack)
+      const sp = state === 'attack' ? 4 : state === 'windup' ? -2 : 0
+      px(ctx, x + 4 + sp, y - 6, 2, 14, c('#6e4a30'))
+      px(ctx, x + 3 + sp, y - 10, 4, 4, c('#cfd8dc'))
+      break
+    }
+    case 'drake': {
+      // Dragonar: drako vermelho com asas, cavaleiro montado
+      const flap = Math.sin(animTime * 5) * 3
+      const s = scale
+      // wings (behind, flapping)
+      ctx.fillStyle = c(shade(color, -0.3))
+      ctx.beginPath()
+      ctx.moveTo(x - 6 * s, y - 8 * s)
+      ctx.lineTo(x - 20 * s, y - 16 * s - flap)
+      ctx.lineTo(x - 16 * s, y - 2 * s)
+      ctx.fill()
+      ctx.beginPath()
+      ctx.moveTo(x + 6 * s, y - 8 * s)
+      ctx.lineTo(x + 20 * s, y - 16 * s - flap)
+      ctx.lineTo(x + 16 * s, y - 2 * s)
+      ctx.fill()
+      // body
+      px(ctx, x - 8 * s, y - 4 * s, 16 * s, 14 * s, c(color))
+      px(ctx, x - 8 * s, y - 4 * s, 16 * s, 3 * s, c(light)) // belly highlight
+      // tail
+      px(ctx, x - 14 * s, y + 2 * s, 8 * s, 3 * s, c(color))
+      px(ctx, x - 18 * s, y + 4 * s, 4 * s, 2 * s, c('#f1c40f')) // tail tip
+      // legs
+      px(ctx, x - 6 * s, y + 8 * s, 4 * s, 6 * s, c(dark))
+      px(ctx, x + 2 * s, y + 8 * s, 4 * s, 6 * s, c(dark))
+      // head
+      px(ctx, x - 4 * s, y - 14 * s, 10 * s, 8 * s, c(color))
+      // horns
+      px(ctx, x - 5 * s, y - 18 * s, 2 * s, 4 * s, c('#3a1a1a'))
+      px(ctx, x + 3 * s, y - 18 * s, 2 * s, 4 * s, c('#3a1a1a'))
+      // eye
+      px(ctx, x - 1 * s, y - 11 * s, 2 * s, 2 * s, '#f1c40f')
+      // mouth/jaw with fire when windup
+      px(ctx, x - 3 * s, y - 7 * s, 8 * s, 2 * s, c('#3a1a1a'))
+      if (state === 'windup' || state === 'attack') {
+        ctx.fillStyle = '#e67e22'
+        ctx.beginPath()
+        ctx.arc(x + 6 * s, y - 6 * s, 4 * s, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.fillStyle = '#f1c40f'
+        ctx.beginPath()
+        ctx.arc(x + 6 * s, y - 6 * s, 2 * s, 0, Math.PI * 2)
+        ctx.fill()
+      }
+      // rider (small knight on back)
+      px(ctx, x - 2 * s, y - 12 * s, 5 * s, 6 * s, c('#4a4a55'))
+      break
+    }
+    case 'vampire': {
+      // Vampiro: capa vermelha, pálido, olhos vermelhos, presas
+      const float = Math.sin(animTime * 4) * 1.5
+      // cape (flowing)
+      px(ctx, x - 8, y - 8 + float, 16, 18, c(color))
+      px(ctx, x - 9, y + 4 + float, 5, 8, c(shade(color, -0.3)))
+      px(ctx, x + 4, y + 4 + float, 5, 8, c(shade(color, -0.3)))
+      // body (pale)
+      px(ctx, x - 4, y - 4 + float, 8, 10, c('#dfe6e9'))
+      // collar
+      px(ctx, x - 6, y - 8 + float, 12, 3, c(color))
+      // head (pale)
+      px(ctx, x - 4, y - 14 + float, 8, 8, c('#ecf0f1'))
+      // hair (black slicked)
+      px(ctx, x - 5, y - 15 + float, 10, 4, c('#1a1a1a'))
+      // glowing red eyes
+      px(ctx, x - 3, y - 10 + float, 2, 2, '#e74c3c')
+      px(ctx, x + 1, y - 10 + float, 2, 2, '#e74c3c')
+      // fangs
+      px(ctx, x - 1, y - 5 + float, 1, 2, '#fff')
+      px(ctx, x + 1, y - 5 + float, 1, 2, '#fff')
+      // clawed hands
+      px(ctx, x - 7, y - 1 + float, 3, 5, c('#ecf0f1'))
+      px(ctx, x + 4, y - 1 + float, 3, 5, c('#ecf0f1'))
+      break
+    }
+    case 'lizard_bard': {
+      // Lagarto Bardo: azul-esverdeado, com pequena flauta/lira, barriga clara
+      const stp = Math.sin(animTime * 7)
+      // legs
+      px(ctx, x - 4, y + 6 + (stp > 0 ? 0 : 1), 3, 6, c(dark))
+      px(ctx, x + 1, y + 6 + (stp < 0 ? 0 : 1), 3, 6, c(dark))
+      // body
+      px(ctx, x - 5, y - 3, 10, 10, c(color))
+      px(ctx, x - 5, y + 2, 10, 4, c('#aed6f1')) // belly
+      // arms
+      px(ctx, x - 8, y - 1, 3, 6, c(color))
+      px(ctx, x + 5, y - 1, 3, 6, c(color))
+      // head
+      px(ctx, x - 5, y - 13, 10, 9, c(color))
+      // snout
+      px(ctx, x - 3, y - 7, 6, 3, c(color))
+      // eye
+      px(ctx, x - 3, y - 10, 2, 2, '#f1c40f')
+      px(ctx, x + 1, y - 10, 2, 2, '#f1c40f')
+      // crest/spikes on head
+      px(ctx, x - 1, y - 15, 2, 2, c(dark))
+      // tail
+      px(ctx, x + 4, y + 4, 6, 2, c(color))
+      // lute/instrument
+      px(ctx, x - 9, y, 4, 6, c('#6e4a30'))
+      px(ctx, x - 10, y - 2, 2, 2, c('#f1c40f'))
+      // musical notes when idle/patrol
+      if (state === 'idle' || state === 'patrol') {
+        ctx.fillStyle = '#fff3a0'
+        ctx.font = 'bold 8px monospace'
+        ctx.fillText('♪', x + 8, y - 8 + Math.sin(animTime * 3) * 2)
+      }
+      break
+    }
+    case 'bear_boss': {
+      // Boss Urso: enorme, marrom, garras, focinho
+      const s = scale
+      const stp = Math.sin(animTime * 4)
+      // shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.45)'
+      ctx.beginPath()
+      ctx.ellipse(x, y + 24 * s, 26 * s, 7 * s, 0, 0, Math.PI * 2)
+      ctx.fill()
+      // legs (massive)
+      px(ctx, x - 14 * s, y + 12 * s + (stp > 0 ? 0 : 2), 8 * s, 14 * s, c(dark))
+      px(ctx, x + 6 * s, y + 12 * s + (stp < 0 ? 0 : 2), 8 * s, 14 * s, c(dark))
+      // claws on feet
+      px(ctx, x - 14 * s, y + 24 * s, 2 * s, 2 * s, '#fff')
+      px(ctx, x - 10 * s, y + 24 * s, 2 * s, 2 * s, '#fff')
+      px(ctx, x + 6 * s, y + 24 * s, 2 * s, 2 * s, '#fff')
+      px(ctx, x + 10 * s, y + 24 * s, 2 * s, 2 * s, '#fff')
+      // body (huge, furry)
+      px(ctx, x - 16 * s, y - 10 * s, 32 * s, 24 * s, c(color))
+      px(ctx, x - 16 * s, y - 10 * s, 32 * s, 4 * s, c(light)) // back highlight
+      px(ctx, x - 10 * s, y + 6 * s, 20 * s, 6 * s, c(dark)) // belly shadow
+      // head (big snout)
+      px(ctx, x - 12 * s, y - 26 * s, 24 * s, 18 * s, c(color))
+      // ears (round)
+      px(ctx, x - 13 * s, y - 30 * s, 5 * s, 5 * s, c(color))
+      px(ctx, x + 8 * s, y - 30 * s, 5 * s, 5 * s, c(color))
+      px(ctx, x - 12 * s, y - 29 * s, 3 * s, 3 * s, c(dark))
+      px(ctx, x + 9 * s, y - 29 * s, 3 * s, 3 * s, c(dark))
+      // snout
+      px(ctx, x - 6 * s, y - 18 * s, 12 * s, 8 * s, c(light))
+      // nose
+      px(ctx, x - 2 * s, y - 18 * s, 4 * s, 3 * s, '#1a1a1a')
+      // eyes (fierce, glowing)
+      px(ctx, x - 6 * s, y - 24 * s, 3 * s, 2 * s, '#f1c40f')
+      px(ctx, x + 3 * s, y - 24 * s, 3 * s, 2 * s, '#f1c40f')
+      // claws on paws (raised when windup)
+      const cw = state === 'windup' || state === 'attack' ? -8 * s : 0
+      px(ctx, x - 22 * s, y - 4 * s + cw, 6 * s, 8 * s, c(dark))
+      px(ctx, x + 16 * s, y - 4 * s + cw, 6 * s, 8 * s, c(dark))
+      px(ctx, x - 24 * s, y + 4 * s + cw, 2 * s, 3 * s, '#fff') // claw
+      px(ctx, x - 21 * s, y + 4 * s + cw, 2 * s, 3 * s, '#fff')
+      px(ctx, x + 17 * s, y + 4 * s + cw, 2 * s, 3 * s, '#fff')
+      px(ctx, x + 20 * s, y + 4 * s + cw, 2 * s, 3 * s, '#fff')
+      break
+    }
   }
 }
 
@@ -683,8 +867,106 @@ export function drawProjectile(
       ctx.arc(0, 0, 2, 0, Math.PI * 2)
       ctx.fill()
       break
+    case 'fireball':
+      ctx.fillStyle = '#c0392b'
+      ctx.beginPath()
+      ctx.arc(0, 0, 7, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = '#e67e22'
+      ctx.beginPath()
+      ctx.arc(0, 0, 5, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = '#f1c40f'
+      ctx.beginPath()
+      ctx.arc(0, 0, 3, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = '#fff3a0'
+      ctx.beginPath()
+      ctx.arc(0, 0, 1.5, 0, Math.PI * 2)
+      ctx.fill()
+      break
   }
   ctx.restore()
+}
+
+// ---------------------------------------------------------------------------
+// SPECIAL STRUCTURES — chapel (paladin) & tower (mage)
+// ---------------------------------------------------------------------------
+export function drawSpecialStructure(
+  ctx: CanvasRenderingContext2D,
+  type: 'chapel' | 'tower',
+  x: number,
+  y: number,
+  t: number,
+  used: boolean
+) {
+  // shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.3)'
+  ctx.beginPath()
+  ctx.ellipse(x, y + 14, 18, 5, 0, 0, Math.PI * 2)
+  ctx.fill()
+
+  if (type === 'chapel') {
+    // small stone chapel with a cross and glowing altar
+    // base
+    px(ctx, x - 14, y - 4, 28, 18, '#6e5230')
+    px(ctx, x - 14, y - 4, 28, 2, '#8a6a40')
+    px(ctx, x - 14, y + 12, 28, 2, '#4a3826')
+    // roof (pointed)
+    px(ctx, x - 16, y - 14, 32, 4, '#3a2d1a')
+    px(ctx, x - 12, y - 18, 24, 4, '#3a2d1a')
+    // door
+    px(ctx, x - 4, y + 2, 8, 12, '#2a1a0a')
+    px(ctx, x - 3, y + 3, 6, 10, '#4a3018')
+    // cross on top
+    px(ctx, x - 1, y - 28, 2, 10, '#f1c40f')
+    px(ctx, x - 4, y - 24, 8, 2, '#f1c40f')
+    // stained glass glow (if not used yet — beckons)
+    if (!used) {
+      const glow = 0.4 + Math.sin(t * 2) * 0.2
+      ctx.fillStyle = `rgba(241,196,15,${glow})`
+      ctx.beginPath()
+      ctx.arc(x, y + 2, 16, 0, Math.PI * 2)
+      ctx.fill()
+      // halo on cross
+      ctx.fillStyle = `rgba(255,243,160,${glow})`
+      ctx.beginPath()
+      ctx.arc(x, y - 22, 6, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  } else {
+    // wizard tower: tall, dark, with glowing crystal apex (only visible at night)
+    // base
+    px(ctx, x - 10, y - 4, 20, 18, '#3a2d4a')
+    px(ctx, x - 10, y - 4, 20, 2, '#4a3d5a')
+    // tower shaft (tall)
+    px(ctx, x - 8, y - 30, 16, 28, '#2a1d3a')
+    px(ctx, x - 8, y - 30, 16, 2, '#3a2d4a')
+    // window slits
+    px(ctx, x - 6, y - 22, 3, 4, '#9b59b6')
+    px(ctx, x + 3, y - 22, 3, 4, '#9b59b6')
+    px(ctx, x - 6, y - 14, 3, 4, '#9b59b6')
+    px(ctx, x + 3, y - 14, 3, 4, '#9b59b6')
+    // conical roof
+    px(ctx, x - 10, y - 36, 20, 6, '#1a0d2a')
+    px(ctx, x - 6, y - 40, 12, 4, '#1a0d2a')
+    // glowing crystal on top
+    const glow = 0.5 + Math.sin(t * 3) * 0.3
+    ctx.fillStyle = `rgba(155,89,182,${glow})`
+    ctx.beginPath()
+    ctx.arc(x, y - 42, 8, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = '#e0aef0'
+    px(ctx, x - 2, y - 44, 4, 4, '#e0aef0')
+    px(ctx, x - 1, y - 45, 2, 2, '#fff')
+    if (!used) {
+      // swirling arcane particles beckoning
+      ctx.fillStyle = `rgba(192,132,252,${glow * 0.5})`
+      ctx.beginPath()
+      ctx.arc(x, y - 42, 20, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -759,6 +1041,8 @@ export function drawItemIcon(ctx: CanvasRenderingContext2D, sprite: string, x: n
       P(6, 7, 4, 4, '#9b7b3a'); P(7, 6, 2, 1, '#f4d870'); P(5, 8, 1, 1, '#6e4a30'); break
     case 'it_torch':
       P(7, 6, 2, 9, '#6e4a30'); P(5, 2, 6, 5, '#f1c40f'); P(6, 0, 4, 3, '#e67e22'); P(7, 4, 2, 1, '#fff3a0'); break
+    case 'it_arrow':
+      P(2, 7, 9, 2, '#6e4a30'); P(11, 5, 4, 6, '#cfd8dc'); P(11, 7, 4, 1, '#fff'); P(1, 6, 3, 4, '#e8eef0'); break
     case 'it_crown':
       P(4, 8, 8, 5, '#f1c40f'); P(4, 6, 2, 3, '#f1c40f'); P(7, 5, 2, 4, '#f1c40f'); P(10, 6, 2, 3, '#f1c40f'); P(6, 10, 1, 1, '#e74c3c'); P(9, 10, 1, 1, '#3498db'); break
     default:

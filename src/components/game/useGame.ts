@@ -12,6 +12,7 @@ const initialSnap: HudSnapshot = {
   nearStation: null, nearPortal: null, nearInteract: null, bossHp: null, bossName: null,
   kills: 0, deaths: 0, craftLevels: { cooking: 1, crafting: 1, alchemy: 1, construction: 1 },
   toast: null, paused: false, showInventory: false, showCrafting: false, message: null, killFeed: [],
+  comboCount: 0, comboTimer: 0, lockTarget: -1, musicEnabled: true, musicMood: 'calm', parryReady: false,
 }
 
 export function useGame() {

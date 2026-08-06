@@ -10,6 +10,7 @@ import {
   ITEMS, RECIPES, CLASSES, ENEMIES, xpForLevel, statsForClass, CRAFT_SKILLS,
   craftXpForLevel, ZONE_NAMES,
 } from './data'
+import { getMusic } from './music'
 import type {
   ZoneId, Tile, TileType, Player, Enemy, EnemyKind, Projectile, DroppedItem,
   FloatText, Particle, ResourceNode, FarmPlot, CraftingStation, Portal,
@@ -57,6 +58,7 @@ export type EngineCommand =
   | { type: 'save' }
   | { type: 'quitToTitle' }
   | { type: 'submitRun' }
+  | { type: 'toggleMusic' }
 
 export class GameEngine {
   canvas: HTMLCanvasElement
@@ -112,6 +114,15 @@ export class GameEngine {
   nearInteract: string | null = null
   bossRef: Enemy | null = null
 
+  // combat feel: hitstop (brief game freeze on hit) + screen shake
+  hitstop = 0
+  shakeAmt = 0
+  shakeTime = 0
+  // music
+  musicEnabled = true
+  musicMood: 'calm' | 'combat' | 'dungeon' = 'calm'
+  private combatMusicTimer = 0 // counts down after last hit to fade out combat music
+
   toast: { id: number; text: string; kind: 'info' | 'good' | 'bad' } | null = null
   message: string | null = null
 
@@ -156,10 +167,22 @@ export class GameEngine {
     let dt = (now - this.lastTime) / 1000
     this.lastTime = now
     if (dt > 0.05) dt = 0.05
+    // hitstop: freeze the simulation briefly on impactful hits for "weight"
+    if (this.hitstop > 0) {
+      this.hitstop -= dt
+      // still tick shake decay + render so the freeze is visible
+      this.updateShake(dt)
+      this.render()
+      this.hudAccum += dt
+      if (this.hudAccum >= this.HUD_INTERVAL) { this.hudAccum = 0; this.emit() }
+      this.rafId = requestAnimationFrame(this.loop)
+      return
+    }
     if (!this.paused && this.screen === 'game') this.update(dt)
     else if (this.screen === 'dead' || this.screen === 'win') {
       // still animate particles
       this.updateParticles(dt)
+      this.updateShake(dt)
     }
     this.render() // canvas always renders at full 60fps
     // throttle React HUD updates to 15fps — this is the key perf fix
@@ -171,10 +194,21 @@ export class GameEngine {
     this.rafId = requestAnimationFrame(this.loop)
   }
 
+  shake(amount: number, time: number) {
+    this.shakeAmt = Math.max(this.shakeAmt, amount)
+    this.shakeTime = Math.max(this.shakeTime, time)
+  }
+  private updateShake(dt: number) {
+    if (this.shakeTime > 0) {
+      this.shakeTime -= dt
+      if (this.shakeTime <= 0) { this.shakeAmt = 0; this.shakeTime = 0 }
+    }
+  }
+
   // ---- input binding ------------------------------------------------------
   private keydown = (e: KeyboardEvent) => {
     const k = e.key.toLowerCase()
-    if (this.screen === 'game' && ['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(k)) e.preventDefault()
+    if (this.screen === 'game' && ['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'tab'].includes(k)) e.preventDefault()
     this.input.keys.add(k)
     if (this.screen !== 'game') return
     // panel toggles + pause work even when a panel is open
@@ -189,7 +223,8 @@ export class GameEngine {
     if (k === 'e') this.interact()
     if (k === ' ') this.dodge()
     if (k === 'j') this.attack('light')
-    if (k === 'k') this.attack('heavy')
+    if (k === 'k') this.startCharge() // hold K to charge heavy; release fires it
+    if (k === 'tab') this.toggleLockOn()
     if (k >= '1' && k <= '6') this.useItem(parseInt(k) - 1)
     if (k === 'q') this.useEquippedPotion()
   }
@@ -209,7 +244,7 @@ export class GameEngine {
     }
     if (e.button === 2) {
       this.input.rmb = true
-      this.attack('heavy')
+      this.startCharge()
     }
   }
   private mouseup = (e: MouseEvent) => {
@@ -296,10 +331,39 @@ export class GameEngine {
       case 'quitToTitle':
         this.screen = 'title'
         this.paused = false
+        this.stopMusic()
+        break
+      case 'toggleMusic':
+        this.toggleMusic()
         break
     }
     // commands change state that the HUD must reflect immediately (don't wait for the 15fps tick)
     this.emit()
+  }
+
+  // ---- music --------------------------------------------------------------
+  toggleMusic() {
+    this.musicEnabled = !this.musicEnabled
+    const m = getMusic()
+    m.setEnabled(this.musicEnabled)
+    if (this.musicEnabled) {
+      this.startMusic()
+      this.flashToast('Música: ON', 'good')
+    } else {
+      this.flashToast('Música: OFF', 'info')
+    }
+  }
+
+  startMusic() {
+    if (!this.musicEnabled) return
+    const m = getMusic()
+    m.setEnabled(true)
+    m.setMood(this.musicMood)
+    m.start()
+  }
+
+  stopMusic() {
+    getMusic().stop()
   }
 
   // ---- world generation ---------------------------------------------------
@@ -489,6 +553,8 @@ export class GameEngine {
 
   private makeEnemy(id: number, kind: EnemyKind, x: number, y: number): Enemy {
     const def: EnemyDef = ENEMIES[kind]
+    // poise threshold: how much stagger damage before the enemy is stunned
+    const poise = kind === 'boss' ? 200 : kind === 'wraith' ? 40 : kind === 'skeleton' ? 70 : 50
     return {
       id, kind, x, y, vx: 0, vy: 0,
       hp: def.hp, maxHp: def.hp,
@@ -497,6 +563,8 @@ export class GameEngine {
       animTime: Math.random() * 10, hitFlash: 0, respawnAt: 0, alive: true,
       attackTargetX: 0, attackTargetY: 0, knockX: 0, knockY: 0,
       isBoss: kind === 'boss',
+      stagger: 0, staggerMax: poise,
+      attackCd: 0, rangedCd: 2 + Math.random() * 2, lungeCd: 2 + Math.random() * 2,
     }
   }
 
@@ -531,8 +599,9 @@ export class GameEngine {
       mana: stats.maxMana, maxMana: stats.maxMana,
       hunger: 100, thirst: 100, gold: 20,
       attacking: 0, attackType: null, attackCd: 0,
-      dodgeTimer: 0, dodgeCd: 0, iframes: 0, blocking: false, hitFlash: 0,
+      dodgeTimer: 0, dodgeCd: 0, iframes: 0, blocking: false, blockHeldTime: 0, parryTimer: 0, hitFlash: 0,
       animTime: 0, moving: false, kills: 0, deaths: 0, playtime: 0, invuln: 0,
+      comboCount: 0, comboTimer: 0, chargeTime: 0, lockTarget: -1, poise: 60, stagger: 0,
     }
     this.equipped = base.startWeapon
     this.inventory = [...base.startItems.map((s) => ({ ...s }))]
@@ -543,6 +612,7 @@ export class GameEngine {
     this.screen = 'game'
     this.paused = false
     this.toast = { id: this.nextId++, text: 'Você desperta em Eldoria... sobreviva.', kind: 'info' }
+    this.startMusic()
   }
 
   loadSave(data: SaveData) {
@@ -568,8 +638,9 @@ export class GameEngine {
       mana: Math.min(data.mana, stats.maxMana), maxMana: stats.maxMana,
       hunger: data.hunger, thirst: data.thirst, gold: data.gold,
       attacking: 0, attackType: null, attackCd: 0,
-      dodgeTimer: 0, dodgeCd: 0, iframes: 0, blocking: false, hitFlash: 0,
+      dodgeTimer: 0, dodgeCd: 0, iframes: 0, blocking: false, blockHeldTime: 0, parryTimer: 0, hitFlash: 0,
       animTime: 0, moving: false, kills: data.kills, deaths: data.deaths, playtime: data.playtime, invuln: 0,
+      comboCount: 0, comboTimer: 0, chargeTime: 0, lockTarget: -1, poise: 60, stagger: 0,
     }
     this.spawnEnemies()
     if (this.bossKilled && this.bossRef) {
@@ -579,6 +650,7 @@ export class GameEngine {
     this.screen = 'game'
     this.paused = false
     this.toast = { id: this.nextId++, text: 'Jornada retomada.', kind: 'info' }
+    this.startMusic()
   }
 
   exportSave(): SaveData {
@@ -938,6 +1010,7 @@ export class GameEngine {
   attack(type: 'light' | 'heavy') {
     const p = this.player
     if (this.screen !== 'game' || this.paused) return
+    if (p.stagger > 0) return
     if (p.attackCd > 0 || p.attacking > 0 || p.dodgeTimer > 0) return
     const def = this.weaponStats()
     const cost = type === 'heavy' ? STAMINA_HEAVY : STAMINA_ATTACK
@@ -946,14 +1019,29 @@ export class GameEngine {
       return
     }
     p.stamina -= cost
+    // lock-on: auto-face the locked target when attacking
+    if (p.lockTarget >= 0) {
+      const tgt = this.enemies.find((e) => e.id === p.lockTarget && e.alive)
+      if (tgt) p.dir = this.dirFromVec(tgt.x - p.x, tgt.y - p.y)
+    }
     p.attacking = type === 'heavy' ? 0.45 : 0.3
     p.attackType = type
     p.attackCd = 1 / (def.attackSpeed || 2)
+    // combo system: chaining light attacks builds combo (up to 5), each hit
+    // slightly increases damage. Combo resets if you stop attacking.
+    if (type === 'light') {
+      p.comboCount = Math.min(5, p.comboCount + 1)
+      p.comboTimer = 1.4
+    } else {
+      // heavy resets combo but deals big damage
+      p.comboCount = 0
+    }
     // ranged weapons spawn projectile at the moment of swing
     if (this.equipped === 'bow' || this.equipped === 'staff') {
       const speed = this.equipped === 'bow' ? 460 : 380
       const ang = this.dirAngle(p.dir)
-      const dmg = (def.damage || 10) * (type === 'heavy' ? 1.6 : 1)
+      const comboMul = 1 + p.comboCount * 0.06
+      const dmg = (def.damage || 10) * (type === 'heavy' ? 1.6 : 1) * comboMul
       this.projectiles.push({
         id: this.nextId++,
         x: p.x + Math.cos(ang) * 16,
@@ -966,6 +1054,73 @@ export class GameEngine {
         kind: this.equipped === 'bow' ? 'arrow' : 'bolt',
       })
     }
+  }
+
+  // hold heavy to charge a stronger attack
+  startCharge() {
+    const p = this.player
+    if (this.screen !== 'game' || this.paused) return
+    if (p.chargeTime > 0) return // already charging — don't reset (key auto-repeat)
+    if (p.attackCd > 0 || p.attacking > 0 || p.dodgeTimer > 0 || p.stagger > 0) return
+    if (p.stamina < STAMINA_HEAVY) return
+    p.chargeTime = 0.01
+  }
+
+  releaseCharge() {
+    const p = this.player
+    if (p.chargeTime <= 0) return
+    const charged = p.chargeTime
+    p.chargeTime = 0
+    if (charged < 0.25) {
+      // tap = normal heavy
+      this.attack('heavy')
+      return
+    }
+    // charged heavy: 1.5x..3x damage based on charge time (max ~1.2s)
+    const p2 = this.player
+    if (p2.stagger > 0 || p2.attackCd > 0 || p2.attacking > 0) return
+    const def = this.weaponStats()
+    const cost = STAMINA_HEAVY
+    if (p2.stamina < cost) return
+    p2.stamina -= cost
+    p2.comboCount = 0
+    p2.attacking = 0.55
+    p2.attackType = 'heavy'
+    p2.attackCd = 1 / ((def.attackSpeed || 2) * 0.7)
+    // store charge bonus for the melee hit via a flag
+    this._chargeBonus = Math.min(3, 1.5 + charged * 1.3)
+    if (p2.lockTarget >= 0) {
+      const tgt = this.enemies.find((e) => e.id === p2.lockTarget && e.alive)
+      if (tgt) p2.dir = this.dirFromVec(tgt.x - p2.x, tgt.y - p2.y)
+    }
+    // screen shake on release
+    this.shake(6, 0.3)
+  }
+
+  private _chargeBonus = 1
+
+  // lock-on targeting: Tab cycles nearest alive enemies
+  toggleLockOn() {
+    const p = this.player
+    if (this.screen !== 'game' || this.paused) return
+    const alive = this.enemies.filter((e) => e.alive)
+    if (alive.length === 0) { p.lockTarget = -1; return }
+    if (p.lockTarget < 0) {
+      // lock nearest
+      let best = alive[0], bd = Infinity
+      for (const e of alive) {
+        const d = Math.hypot(e.x - p.x, e.y - p.y)
+        if (d < bd) { bd = d; best = e }
+      }
+      p.lockTarget = best.id
+    } else {
+      // cycle to next
+      const idx = alive.findIndex((e) => e.id === p.lockTarget)
+      const next = alive[(idx + 1) % alive.length]
+      p.lockTarget = next.id
+    }
+    const t = this.enemies.find((e) => e.id === p.lockTarget)
+    if (t) this.flashToast(`Mirando: ${ENEMIES[t.kind].name}`, 'info')
   }
 
   private dirAngle(dir: Dir): number {
@@ -1006,7 +1161,12 @@ export class GameEngine {
     const reach = def.reach || 38
     const arc = def.arc || 1.4
     const heavy = p.attackType === 'heavy'
-    const baseDmg = (def.damage || 10) * (heavy ? 1.6 : 1)
+    const comboMul = 1 + p.comboCount * 0.06
+    const chargeMul = heavy ? this._chargeBonus : 1
+    const baseDmg = (def.damage || 10) * (heavy ? 1.6 : 1) * comboMul * chargeMul
+    // reset charge bonus after the hit lands
+    if (heavy) this._chargeBonus = 1
+    let hitAny = false
     for (const e of this.enemies) {
       if (!e.alive) continue
       const dx = e.x - p.x, dy = e.y - p.y
@@ -1017,33 +1177,53 @@ export class GameEngine {
       while (diff > Math.PI) diff -= Math.PI * 2
       while (diff < -Math.PI) diff += Math.PI * 2
       if (Math.abs(diff) > arc / 2) continue
-      // backstab check (rogue behind enemy)
       let dmg = baseDmg
       let crit = false
-      // crit chance from agility-ish
+      // staggered enemies take crit (riposte window)
+      if (e.stagger > 0) { dmg *= 1.6; crit = true }
+      // backstab check (rogue behind enemy)
       if (this.cls === 'rogue' && Math.abs(diff) < 0.4) {
-        dmg *= 1.5
-        crit = true
+        dmg *= 1.5; crit = true
       } else if (Math.random() < 0.12) {
-        dmg *= 1.5
-        crit = true
+        dmg *= 1.5; crit = true
       }
       dmg = Math.round(dmg)
       this.damageEnemy(e, dmg, dx, dy, crit)
+      hitAny = true
+    }
+    if (hitAny) {
+      // hitstop: brief game freeze on connect for impact feel
+      this.hitstop = Math.max(this.hitstop, heavy ? 0.09 : 0.05)
+      this.shake(heavy ? 5 : 2.5, 0.15)
     }
   }
 
   damageEnemy(e: Enemy, dmg: number, kx: number, ky: number, crit: boolean) {
     e.hp -= dmg
     e.hitFlash = 0.15
-    const k = crit ? 90 : 50
+    const k = crit ? 110 : 55
     const len = Math.hypot(kx, ky) || 1
     e.knockX += (kx / len) * k
     e.knockY += (ky / len) * k
+    // poise damage -> stagger when threshold exceeded
+    e.stagger += dmg
+    if (e.stagger >= e.staggerMax && !e.isBoss) {
+      e.stagger = e.staggerMax
+      e.state = 'hurt'
+      e.stateTimer = 0.8 // staggered for 0.8s, open to riposte
+      this.spawnFloat(e.x, e.y - 30, 'ATORDOADO!', '#74b9ff')
+      this.spawnParticles(e.x, e.y, 10, '#74b9ff')
+    } else if (e.isBoss && e.stagger >= e.staggerMax) {
+      // boss: brief stagger only, resets poise
+      e.stagger = 0
+      e.state = 'hurt'
+      e.stateTimer = 0.6
+      this.spawnFloat(e.x, e.y - 50, 'VULNERÁVEL!', '#f1c40f')
+    }
     // aggro
     if (e.state === 'idle' || e.state === 'patrol') e.state = 'chase'
     this.spawnFloat(e.x, e.y - 16, `${dmg}${crit ? '!' : ''}`, crit ? '#f1c40f' : '#ffffff')
-    this.spawnParticles(e.x, e.y, 4, '#e74c3c')
+    this.spawnParticles(e.x, e.y, crit ? 8 : 4, '#e74c3c')
     if (e.hp <= 0) this.killEnemy(e)
   }
 
@@ -1109,21 +1289,57 @@ export class GameEngine {
     if (p.iframes > 0 || p.invuln > 0) return
     let dmg = amount
     let blocked = false
+    let parried = false
     if (p.blocking && p.stamina > 0) {
-      const reduce = this.cls === 'warrior' ? 0.7 : 0.5
-      dmg = amount * (1 - reduce)
-      p.stamina = Math.max(0, p.stamina - STAMINA_BLOCK_HIT)
-      blocked = true
-      if (p.stamina <= 0) {
-        // guard break
-        p.invuln = 0.6
-        this.spawnFloat(p.x, p.y - 24, 'GUARDA QUEBRADA!', '#e74c3c')
+      // PERFECT PARRY: block raised within the last 0.22s = parry.
+      // Negates all damage, costs no stamina, staggers the attacker,
+      // and opens a riposte window (enemy is stunned, crit-able).
+      if (p.parryTimer > 0) {
+        parried = true
+        dmg = 0
+        // find the attacking enemy and stagger it
+        const atk = this.enemies.find((e) => e.alive && Math.hypot(e.x - sx, e.y - sy) < 40)
+        if (atk) {
+          atk.stagger = atk.staggerMax
+          atk.state = 'hurt'
+          atk.stateTimer = 1.2
+          this.spawnFloat(atk.x, atk.y - 30, 'PARRY!', '#f1c40f')
+          this.spawnParticles(atk.x, atk.y, 14, '#f1c40f')
+          this.shake(4, 0.2)
+          this.hitstop = Math.max(this.hitstop, 0.07)
+          // parry spark
+          this.spawnParticles(p.x, p.y - 6, 10, '#fff3a0')
+        }
+      } else {
+        const reduce = this.cls === 'warrior' ? 0.7 : 0.5
+        dmg = amount * (1 - reduce)
+        p.stamina = Math.max(0, p.stamina - STAMINA_BLOCK_HIT)
+        blocked = true
+        if (p.stamina <= 0) {
+          // guard break
+          p.invuln = 0.6
+          p.stagger = 0.5
+          this.spawnFloat(p.x, p.y - 24, 'GUARDA QUEBRADA!', '#e74c3c')
+        }
       }
+    }
+    if (parried) {
+      // no damage taken, brief i-frames
+      p.invuln = 0.2
+      this.spawnFloat(p.x, p.y - 20, 'PARRY!', '#f1c40f')
+      return
     }
     dmg = Math.round(dmg)
     p.hp -= dmg
     p.hitFlash = 0.2
     p.invuln = 0.4
+    // stagger player if hit hard enough (reduces poise)
+    p.poise -= dmg
+    if (p.poise <= 0 && p.stagger <= 0) {
+      p.stagger = 0.35
+      p.poise = 60
+      this.spawnFloat(p.x, p.y - 24, 'ATORDOADO!', '#e74c3c')
+    }
     // knockback
     const dx = p.x - sx, dy = p.y - sy
     const len = Math.hypot(dx, dy) || 1
@@ -1131,6 +1347,7 @@ export class GameEngine {
     p.vy += (dy / len) * (blocked ? 60 : 140)
     this.spawnFloat(p.x, p.y - 20, blocked ? `Bloq ${dmg}` : `-${dmg}`, blocked ? '#3498db' : '#e74c3c')
     this.spawnParticles(p.x, p.y, 6, '#e74c3c')
+    if (!blocked) this.shake(3, 0.18)
     if (p.hp <= 0) {
       p.hp = 0
       this.onPlayerDeath()
@@ -1220,6 +1437,8 @@ export class GameEngine {
     this.updateProximity()
     this.updateParticles(dt)
     this.updateCamera(dt)
+    this.updateShake(dt)
+    this.updateMusicMood(dt)
 
     // toast expire
     if (this.toast) {
@@ -1237,6 +1456,12 @@ export class GameEngine {
 
   private updatePlayer(dt: number) {
     const p = this.player
+    // stagger: can't act while staggered
+    if (p.stagger > 0) {
+      p.stagger -= dt
+      p.blocking = false
+      p.chargeTime = 0
+    }
     // input movement
     let ix = 0, iy = 0
     const k = this.input.keys
@@ -1244,12 +1469,41 @@ export class GameEngine {
     if (k.has('d') || k.has('arrowright')) ix += 1
     if (k.has('w') || k.has('arrowup')) iy -= 1
     if (k.has('s') || k.has('arrowdown')) iy += 1
-    p.blocking = k.has('shift') && p.stamina > 0 && p.dodgeTimer <= 0
+    const wasBlocking = p.blocking
+    p.blocking = k.has('shift') && p.stamina > 0 && p.dodgeTimer <= 0 && p.stagger <= 0 && p.chargeTime <= 0
+    // parry window: the first 0.22s after raising the shield counts as a perfect parry
+    if (p.blocking && !wasBlocking) {
+      p.parryTimer = 0.22
+    }
+    if (p.parryTimer > 0) p.parryTimer -= dt
+    if (p.blocking) p.blockHeldTime += dt
+    else p.blockHeldTime = 0
+    // charging heavy attack (hold K/right mouse)
+    const charging = (k.has('k') || this.input.rmb) && p.chargeTime > 0
+    if (p.chargeTime > 0) {
+      if (charging && p.chargeTime < 1.3) {
+        p.chargeTime += dt
+      } else if (!charging) {
+        this.releaseCharge()
+      }
+    }
     const archerBoost = this.cls === 'archer' ? 1.15 : 1
     let speed = p.blocking ? PLAYER_SPEED * 0.4 : PLAYER_SPEED * archerBoost
+    if (p.chargeTime > 0) speed *= 0.3 // slow while charging
+    if (p.stagger > 0) speed *= 0.3 // slow while staggered
     // hunger/thirst slows
     if (p.hunger < 30) speed *= 0.8
     if (p.thirst < 20) speed *= 0.85
+
+    // lock-on: auto-face the target and slow rotation
+    if (p.lockTarget >= 0) {
+      const tgt = this.enemies.find((e) => e.id === p.lockTarget && e.alive)
+      if (!tgt) p.lockTarget = -1
+      else {
+        // face target when not actively moving (strafe feel)
+        if (ix === 0 && iy === 0) p.dir = this.dirFromVec(tgt.x - p.x, tgt.y - p.y)
+      }
+    }
 
     if (p.dodgeTimer > 0) {
       p.dodgeTimer -= dt
@@ -1258,6 +1512,11 @@ export class GameEngine {
       const ds = DODGE_SPEED * (p.dodgeTimer / DODGE_TIME + 0.4)
       p.vx = Math.cos(ang) * ds
       p.vy = Math.sin(ang) * ds
+    } else if (p.stagger > 0) {
+      // can't move while staggered
+      p.vx *= 0.8
+      p.vy *= 0.8
+      p.moving = false
     } else {
       const moving = ix !== 0 || iy !== 0
       if (moving) {
@@ -1277,6 +1536,11 @@ export class GameEngine {
     if (p.invuln > 0) p.invuln -= dt
     if (p.dodgeCd > 0) p.dodgeCd -= dt
     if (p.attackCd > 0) p.attackCd -= dt
+    // combo timer decay
+    if (p.comboTimer > 0) {
+      p.comboTimer -= dt
+      if (p.comboTimer <= 0) p.comboCount = 0
+    }
     if (p.attacking > 0) {
       const was = p.attacking
       p.attacking -= dt
@@ -1289,6 +1553,8 @@ export class GameEngine {
       if (p.attacking <= 0) p.attackType = null
     }
     if (p.hitFlash > 0) p.hitFlash -= dt
+    // poise slowly recovers
+    if (p.poise < 60) p.poise = Math.min(60, p.poise + 15 * dt)
 
     // apply velocity with collision
     this.moveEntity(p, p.vx * dt, p.vy * dt, 7)
@@ -1396,12 +1662,28 @@ export class GameEngine {
       const dx = p.x - e.x, dy = p.y - e.y
       const dist = Math.hypot(dx, dy)
       e.animTime += dt
+      // cooldowns tick down
+      if (e.attackCd > 0) e.attackCd -= dt
+      if (e.rangedCd > 0) e.rangedCd -= dt
+      if (e.lungeCd > 0) e.lungeCd -= dt
 
       // apply knockback
       e.x += e.knockX * dt
       e.y += e.knockY * dt
       e.knockX *= 0.82
       e.knockY *= 0.82
+
+      // staggered: can't act, just recover
+      if (e.state === 'hurt' || e.stagger >= e.staggerMax) {
+        e.stateTimer -= dt
+        e.vx *= 0.8
+        e.vy *= 0.8
+        if (e.stateTimer <= 0) {
+          e.stagger = 0
+          e.state = dist < def.sight ? 'chase' : 'patrol'
+        }
+        continue
+      }
 
       switch (e.state) {
         case 'idle':
@@ -1434,8 +1716,34 @@ export class GameEngine {
             e.state = 'patrol'
             break
           }
-          if (dist <= def.reach + 6) {
-            // attack
+          // WRAITH: keep distance and fire projectiles
+          if (e.kind === 'wraith' && dist < 280 && dist > 120 && e.rangedCd <= 0) {
+            e.state = 'windup'
+            e.stateTimer = def.windup
+            e.attackTargetX = p.x
+            e.attackTargetY = p.y
+            e.dir = this.dirFromVec(dx, dy)
+            e.vx = 0; e.vy = 0
+            break
+          }
+          // WOLF: lunge from medium range
+          if (e.kind === 'wolf' && dist < 220 && dist > 60 && e.lungeCd <= 0) {
+            e.state = 'windup'
+            e.stateTimer = 0.35
+            e.attackTargetX = p.x
+            e.attackTargetY = p.y
+            e.dir = this.dirFromVec(dx, dy)
+            break
+          }
+          // BOSS: occasionally do a sweeping AoE when close-mid range
+          if (e.isBoss && dist < 180 && e.attackCd <= 0 && Math.random() < 0.012) {
+            e.state = 'windup'
+            e.stateTimer = 0.8
+            e.dir = this.dirFromVec(dx, dy)
+            break
+          }
+          if (dist <= def.reach + 6 && e.attackCd <= 0) {
+            // melee attack
             e.state = 'windup'
             e.stateTimer = def.windup
             e.attackTargetX = p.x
@@ -1459,10 +1767,36 @@ export class GameEngine {
           if (e.stateTimer <= 0) {
             e.state = 'attack'
             e.stateTimer = def.active
-            // lunge
             const ang = Math.atan2(dy, dx)
-            e.vx = Math.cos(ang) * (e.isBoss ? 180 : 120)
-            e.vy = Math.sin(ang) * (e.isBoss ? 180 : 120)
+            if (e.kind === 'wraith') {
+              // fire 3 projectiles in a spread
+              e.vx = 0; e.vy = 0
+              for (let i = -1; i <= 1; i++) {
+                const a = ang + i * 0.25
+                this.projectiles.push({
+                  id: this.nextId++, x: e.x, y: e.y - 6,
+                  vx: Math.cos(a) * 200, vy: Math.sin(a) * 200,
+                  life: 2.5, damage: def.damage, fromPlayer: false, kind: 'frost',
+                })
+              }
+              e.rangedCd = 3.5
+              e.state = 'recover'
+              e.stateTimer = def.recovery
+            } else if (e.kind === 'wolf') {
+              // big lunge
+              e.vx = Math.cos(ang) * 340
+              e.vy = Math.sin(ang) * 340
+              e.lungeCd = 3
+            } else if (e.isBoss) {
+              // boss AoE slam — big lunge + shockwave
+              e.vx = Math.cos(ang) * 220
+              e.vy = Math.sin(ang) * 220
+              this.shake(5, 0.3)
+              this.spawnParticles(e.x, e.y, 16, '#e74c3c')
+            } else {
+              e.vx = Math.cos(ang) * (e.isBoss ? 180 : 120)
+              e.vy = Math.sin(ang) * (e.isBoss ? 180 : 120)
+            }
           }
           break
         }
@@ -1470,8 +1804,9 @@ export class GameEngine {
           e.stateTimer -= dt
           // active hit detection
           const adx = p.x - e.x, ady = p.y - e.y
-          if (Math.hypot(adx, ady) < def.reach + 12) {
-            this.damagePlayer(def.damage, e.x, e.y)
+          const reach = def.reach + (e.isBoss ? 20 : 12)
+          if (Math.hypot(adx, ady) < reach) {
+            this.damagePlayer(def.damage * (e.isBoss ? 1.1 : 1), e.x, e.y)
           }
           this.moveEntity(e, e.vx * dt, e.vy * dt, 6)
           e.vx *= 0.9
@@ -1479,6 +1814,7 @@ export class GameEngine {
           if (e.stateTimer <= 0) {
             e.state = 'recover'
             e.stateTimer = def.recovery
+            e.attackCd = e.isBoss ? 1.2 : 0.8
           }
           break
         }
@@ -1627,6 +1963,34 @@ export class GameEngine {
     }
   }
 
+  private updateMusicMood(dt: number) {
+    // determine mood: dungeon always tense; combat if a nearby enemy is
+    // chasing/attacking; otherwise calm.
+    let mood: 'calm' | 'combat' | 'dungeon' = this.zone === 'dungeon' ? 'dungeon' : 'calm'
+    if (this.bossRef && this.bossRef.alive) mood = 'combat'
+    else {
+      const p = this.player
+      let near = false
+      for (const e of this.enemies) {
+        if (!e.alive) continue
+        if (e.state === 'chase' || e.state === 'windup' || e.state === 'attack') {
+          if (Math.hypot(e.x - p.x, e.y - p.y) < 320) { near = true; break }
+        }
+      }
+      if (near) {
+        this.combatMusicTimer = 4 // stay combat for 4s after last aggro
+        mood = 'combat'
+      } else if (this.combatMusicTimer > 0) {
+        this.combatMusicTimer -= dt
+        mood = 'combat'
+      }
+    }
+    if (mood !== this.musicMood) {
+      this.musicMood = mood
+      getMusic().setMood(mood)
+    }
+  }
+
   private updateCamera(dt: number) {
     const p = this.player
     const tx = p.x - this.vw / 2
@@ -1672,9 +2036,16 @@ export class GameEngine {
       this.renderBackdrop()
       return
     }
+    // screen shake offset
+    let shx = 0, shy = 0
+    if (this.shakeTime > 0) {
+      const m = this.shakeAmt * (this.shakeTime > 0 ? 1 : 0)
+      shx = (Math.random() - 0.5) * m
+      shy = (Math.random() - 0.5) * m
+    }
     // game world
     ctx.save()
-    ctx.translate(-Math.round(this.camera.x), -Math.round(this.camera.y))
+    ctx.translate(-Math.round(this.camera.x) + shx, -Math.round(this.camera.y) + shy)
     this.renderTiles()
     this.renderResourcesBelow()
     this.renderFarm()
@@ -1701,6 +2072,32 @@ export class GameEngine {
             ctx.stroke()
           }
           drawEnemy(ctx, e.kind, e.x, e.y, e.state, e.stateTimer, e.dir, e.animTime, e.hitFlash, def.scale, def.color)
+          // staggered indicator (riposte window)
+          if (e.stagger >= e.staggerMax || e.state === 'hurt') {
+            ctx.strokeStyle = '#74b9ff'
+            ctx.lineWidth = 2
+            ctx.setLineDash([3, 3])
+            ctx.beginPath()
+            ctx.arc(e.x, e.y - 6, 18, 0, Math.PI * 2)
+            ctx.stroke()
+            ctx.setLineDash([])
+          }
+          // lock-on marker
+          if (this.player.lockTarget === e.id) {
+            ctx.strokeStyle = '#f1c40f'
+            ctx.lineWidth = 2
+            const r = 16 + Math.sin(this.playtime * 8) * 2
+            ctx.beginPath()
+            ctx.arc(e.x, e.y - 4, r, 0, Math.PI * 2)
+            ctx.stroke()
+            // corner brackets
+            ctx.beginPath()
+            ctx.moveTo(e.x - r, e.y - 4 - r + 4); ctx.lineTo(e.x - r, e.y - 4 - r); ctx.lineTo(e.x - r + 4, e.y - 4 - r)
+            ctx.moveTo(e.x + r, e.y - 4 - r + 4); ctx.lineTo(e.x + r, e.y - 4 - r); ctx.lineTo(e.x + r - 4, e.y - 4 - r)
+            ctx.moveTo(e.x - r, e.y - 4 + r - 4); ctx.lineTo(e.x - r, e.y - 4 + r); ctx.lineTo(e.x - r + 4, e.y - 4 + r)
+            ctx.moveTo(e.x + r, e.y - 4 + r - 4); ctx.lineTo(e.x + r, e.y - 4 + r); ctx.lineTo(e.x + r - 4, e.y - 4 + r)
+            ctx.stroke()
+          }
           // hp bar
           if (e.hp < e.maxHp && !e.isBoss) {
             const w = 24
@@ -1717,6 +2114,33 @@ export class GameEngine {
         drawPlayer(ctx, this.player.x, this.player.y, this.cls, this.player.dir, this.player.moving,
           this.player.animTime, this.player.attacking, this.player.attackType, this.player.dodgeTimer,
           this.player.blocking, this.player.hitFlash, ITEMS[this.equipped]?.sprite || 'wpn_sword')
+        // parry-ready glow on shield
+        if (this.player.parryTimer > 0) {
+          ctx.fillStyle = 'rgba(241,196,15,0.35)'
+          ctx.beginPath()
+          ctx.arc(this.player.x, this.player.y - 2, 14, 0, Math.PI * 2)
+          ctx.fill()
+        }
+        // charge effect (growing aura + sparks)
+        if (this.player.chargeTime > 0) {
+          const t = this.player.chargeTime
+          const r = 8 + Math.min(20, t * 16)
+          ctx.fillStyle = `rgba(241,196,15,${0.2 + Math.min(0.4, t * 0.3)})`
+          ctx.beginPath()
+          ctx.arc(this.player.x, this.player.y - 2, r, 0, Math.PI * 2)
+          ctx.fill()
+          // charge sparks
+          if (Math.random() < 0.5) {
+            this.spawnParticles(this.player.x, this.player.y - 4, 1, '#fff3a0')
+          }
+        }
+        // staggered tint
+        if (this.player.stagger > 0) {
+          ctx.fillStyle = 'rgba(231,76,60,0.3)'
+          ctx.beginPath()
+          ctx.arc(this.player.x, this.player.y - 2, 12, 0, Math.PI * 2)
+          ctx.fill()
+        }
         // iframe shimmer
         if (this.player.iframes > 0 || this.player.dodgeTimer > 0) {
           ctx.fillStyle = 'rgba(255,255,255,0.25)'
@@ -1932,6 +2356,12 @@ export class GameEngine {
       showCrafting: this.showCrafting,
       message: this.message,
       killFeed: this.killFeed.map((k) => ({ id: k.id, text: k.text })),
+      comboCount: p?.comboCount ?? 0,
+      comboTimer: p?.comboTimer ?? 0,
+      lockTarget: p?.lockTarget ?? -1,
+      musicEnabled: this.musicEnabled,
+      musicMood: this.musicMood,
+      parryReady: (p?.parryTimer ?? 0) > 0,
     }
   }
 }

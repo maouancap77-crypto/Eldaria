@@ -23,6 +23,7 @@ export function GameCanvas() {
         <Hud
           s={snap}
           onUseItem={(i) => cmd({ type: 'useItem', index: i })}
+          onToggleMusic={() => cmd({ type: 'toggleMusic' })}
         />
       )}
 

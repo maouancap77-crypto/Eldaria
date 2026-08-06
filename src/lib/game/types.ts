@@ -190,6 +190,8 @@ export interface Player {
   dodgeCd: number
   iframes: number
   blocking: boolean
+  blockHeldTime: number // how long block has been held (for parry window)
+  parryTimer: number // >0 means in perfect-parry window (just raised shield)
   hitFlash: number
   animTime: number
   moving: boolean
@@ -197,6 +199,12 @@ export interface Player {
   deaths: number
   playtime: number
   invuln: number
+  comboCount: number
+  comboTimer: number
+  chargeTime: number // >0 while charging a heavy attack
+  lockTarget: number // enemy id, -1 = none
+  poise: number // player poise (stagger resistance)
+  stagger: number // >0 means staggered (can't act)
 }
 
 export type EnemyState =
@@ -233,6 +241,11 @@ export interface Enemy {
   isBoss?: boolean
   knockX: number
   knockY: number
+  stagger: number // >0 means staggered/stunned (can't act, open to crit)
+  staggerMax: number // poise threshold before stagger
+  attackCd: number // cooldown between attacks
+  rangedCd: number // cooldown for ranged attacks (wraith)
+  lungeCd: number // cooldown for wolf lunge
 }
 
 export interface Projectile {
@@ -387,4 +400,10 @@ export interface HudSnapshot {
   showCrafting: boolean
   message: string | null
   killFeed: { id: number; text: string }[]
+  comboCount: number
+  comboTimer: number
+  lockTarget: number
+  musicEnabled: boolean
+  musicMood: 'calm' | 'combat' | 'dungeon'
+  parryReady: boolean
 }

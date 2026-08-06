@@ -7,6 +7,7 @@ import { ItemIcon, spriteFor } from './ItemIcon'
 interface Props {
   s: HudSnapshot
   onUseItem: (i: number) => void
+  onToggleMusic: () => void
 }
 
 function Bar({ value, max, color, label, h = 14 }: { value: number; max: number; color: string; label?: string; h?: number }) {
@@ -26,7 +27,7 @@ function Bar({ value, max, color, label, h = 14 }: { value: number; max: number;
   )
 }
 
-export function Hud({ s, onUseItem }: Props) {
+export function Hud({ s, onUseItem, onToggleMusic }: Props) {
   const cls = CLASSES[s.cls]
   const timeLabel = timeStr(s.timeOfDay)
   const hotbar = s.inventory.slice(0, 6)
@@ -113,6 +114,45 @@ export function Hud({ s, onUseItem }: Props) {
         </div>
       )}
 
+      {/* Combo counter */}
+      {s.comboCount > 1 && (
+        <div
+          className="absolute top-28 left-1/2 -translate-x-1/2 anim-in pointer-events-none"
+          key={s.comboCount}
+        >
+          <div
+            className="pix-panel px-3 py-1 text-center"
+            style={{ borderColor: s.comboCount >= 4 ? '#e67e22' : '#6e5230' }}
+          >
+            <span
+              className="text-2xl font-black text-glow"
+              style={{ color: s.comboCount >= 4 ? '#e67e22' : '#f1c40f', fontSize: 14 + s.comboCount * 2 }}
+            >
+              {s.comboCount}
+            </span>
+            <span className="text-[9px] text-amber-200/70 ml-1 tracking-widest">COMBO</span>
+          </div>
+        </div>
+      )}
+
+      {/* Parry-ready indicator */}
+      {s.parryReady && (
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-12 pointer-events-none">
+          <div className="pix-panel px-2 py-0.5 text-[10px] text-amber-300 font-bold tracking-widest pulse-red anim-in">
+            ◈ PARRY ◈
+          </div>
+        </div>
+      )}
+
+      {/* Music toggle */}
+      <button
+        onClick={onToggleMusic}
+        className="absolute bottom-3 left-1/2 -translate-x-1/2 pix-btn px-3 py-1 text-[10px] pointer-events-auto"
+        title="Ligar/desligar música"
+      >
+        {s.musicEnabled ? '♪ Música ON' : '♪ Música OFF'} · {s.musicMood === 'combat' ? '⚔' : s.musicMood === 'dungeon' ? '🕯' : '🌲'}
+      </button>
+
       {/* Toast */}
       {s.toast && (
         <div className="absolute top-1/4 left-1/2 -translate-x-1/2 anim-in">
@@ -153,9 +193,9 @@ export function Hud({ s, onUseItem }: Props) {
       {/* Bottom-right: controls hint */}
       <div className="absolute bottom-3 right-3 pix-panel px-3 py-2 text-[9px] text-amber-100/60 leading-relaxed hidden sm:block">
         <div><span className="text-amber-300">WASD</span> mover · <span className="text-amber-300">J/Click</span> golpe</div>
-        <div><span className="text-amber-300">K/Dir</span> pesado · <span className="text-amber-300">Espaço</span> esquiva</div>
-        <div><span className="text-amber-300">Shift</span> bloquear · <span className="text-amber-300">E</span> interagir</div>
-        <div><span className="text-amber-300">I</span> inventário · <span className="text-amber-300">C</span> criar · <span className="text-amber-300">Esc</span> pausa</div>
+        <div><span className="text-amber-300">K/Dir(segure)</span> pesado/carregar · <span className="text-amber-300">Espaço</span> esquiva</div>
+        <div><span className="text-amber-300">Shift</span> bloquear/parry · <span className="text-amber-300">Tab</span> mirar</div>
+        <div><span className="text-amber-300">E</span> interagir · <span className="text-amber-300">I</span> inventário · <span className="text-amber-300">C</span> criar</div>
       </div>
 
       {/* Station / portal hint */}

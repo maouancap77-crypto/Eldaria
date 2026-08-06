@@ -45,3 +45,30 @@ Stage Summary:
 - Performance fixed: 61 FPS confirmed via rAF measurement during active gameplay (movement + combat) in both plains and dungeon zones.
 - Hydration errors eliminated (no console errors, no errors panel output).
 - For Vercel deployment: SQLite (file-based Prisma) won't work on Vercel serverless (ephemeral filesystem). Two options provided to user: (A) switch Prisma to Postgres (Neon free tier), or (B) move saves to client localStorage (simplest, no DB needed).
+
+---
+Task ID: 3
+Agent: main (Z.ai Code)
+Task: Fix hydration error, improve/augment combat system, add fantasy background music.
+
+Work Log:
+- Hydration fix: added suppressHydrationWarning to <body> in layout.tsx (the bis_* attributes in the error diff are injected by a browser extension, not our code; this suppresses the warning).
+- Built procedural fantasy music engine (music.ts) using Web Audio API — no external files. Synthesizes: drone pad with LFO breathing, pentatonic flute melody, harp arpeggios, tribal percussion. Three moods (calm/combat/dungeon) with distinct scales + tempo. Mood auto-adapts: dungeon = always tense, combat = when enemies aggro nearby, calm = otherwise.
+- Combat system overhaul:
+  * Parry system: blocking within 0.22s of raising shield = perfect parry (negates all damage, staggers attacker, opens riposte window). Parry-ready glow on player. Visual "PARRY!" feedback.
+  * Hitstop: brief game freeze (0.05-0.09s) on hit connect for impact "weight".
+  * Screen shake: camera shake on heavy hits, parries, boss attacks, taking damage.
+  * Combo system: chaining light attacks builds combo (up to 5), each hit +6% damage. Combo counter HUD with growing size. Resets if you stop attacking.
+  * Charged heavy attack: hold K/right-mouse to charge (up to 1.3s), release for 1.5x-3x damage. Charge aura + sparks visual. Fixed key-auto-repeat bug that reset chargeTime.
+  * Lock-on targeting (Tab): cycles nearest enemies, auto-faces target when attacking/idle. Yellow bracket marker on locked enemy.
+  * Poise/stagger: enemies have poise threshold; accumulating damage staggers them (open to crit riposte). Player also has poise — heavy hits stagger you.
+  * Enemy variety: Wraiths now fire 3-projectile spreads (frost bolts) from range. Wolves do fast lunge attacks. Boss does AoE slam with screen shake.
+  * Guard break: blocking with 0 stamina = stagger + "GUARDA QUEBRADA!" warning.
+- Music integration: starts on game start (user gesture satisfies autoplay policy), mood updates each frame based on nearby aggro + zone, toggle button in HUD ("♪ Música ON/OFF"), stops on quit-to-title.
+
+Stage Summary:
+- Hydration warnings suppressed (browser extension artifact).
+- Combat significantly deeper: parry/riposte, combos, charged attacks, lock-on, stagger system, hitstop, screen shake, varied enemy attacks.
+- Procedural fantasy music plays with adaptive mood (calm/combat/dungeon), toggleable.
+- Verified via Agent Browser: 62 FPS, combo counter shows (2 COMBO), lock-on toast ("Mirando: Limo Verde"), music toggle button works (ON→OFF), wraith fires projectiles, charged heavy kills enemies, no console/hydration errors.
+- Lint clean; controls updated: WASD move · J/Click light · K/RMB(hold) heavy/charge · Space dodge · Shift block/parry · Tab lock-on · E interact.

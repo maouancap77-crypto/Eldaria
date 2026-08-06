@@ -1,0 +1,31 @@
+// Eldoria Online — persistence schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// Single-slot save game. The whole game state is serialized to JSON.
+model SaveGame {
+  id        String   @id @default("default")
+  data      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Persistent leaderboard for souls-like prestige (deaths + level reached).
+model Leaderboard {
+  id        String   @id @default(cuid())
+  heroName  String
+  heroClass String
+  level     Int
+  maxZone   String
+  kills     Int
+  deaths    Int
+  playtime  Int
+  createdAt DateTime @default(now())
+}

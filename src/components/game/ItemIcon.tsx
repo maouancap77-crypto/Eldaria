@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import { drawItemIcon } from '@/lib/game/sprites'
 
 /** Map an item id to its pixel sprite key. */
@@ -18,7 +18,7 @@ export function spriteFor(id: string): string {
   return map[id] || 'it_wood'
 }
 
-export function ItemIcon({ sprite, size = 36 }: { sprite: string; size?: number }) {
+export const ItemIcon = memo(function ItemIcon({ sprite, size = 36 }: { sprite: string; size?: number }) {
   const ref = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
     const c = ref.current
@@ -39,4 +39,4 @@ export function ItemIcon({ sprite, size = 36 }: { sprite: string; size?: number 
       className="pointer-events-none"
     />
   )
-}
+})

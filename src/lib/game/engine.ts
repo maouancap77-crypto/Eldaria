@@ -1154,42 +1154,52 @@ export class GameEngine {
       this.interactStructure()
       return
     }
-    // try gathering nearby resource
     const p = this.player
-    let best: ResourceNode | null = null
-    let bestD = 36 * 36
-    for (const r of this.resources[this.zone]) {
-      if (!r.alive) continue
-      const dx = r.x - p.x, dy = r.y - p.y
-      const d = dx * dx + dy * dy
-      if (d < bestD) { bestD = d; best = r }
-    }
-    if (best) {
-      this.gatherResource(best)
-      return
-    }
-    // farm: till soil or harvest
     const tx = Math.floor(p.x / TILE), ty = Math.floor(p.y / TILE)
+    const tile = this.tiles[this.zone][ty]?.[tx]
+
+    // ---- FARMING FIRST: till / plant / water / harvest takes priority over
+    // gathering, so you can farm even when standing near a tree. ----
     const plot = this.farmPlots.find((f) => f.tileX === tx && f.tileY === ty)
     if (plot) {
       if (plot.stage >= 3) {
         this.harvestCrop(plot)
+      } else if (plot.crop) {
+        // already planted — water it if we have a water bottle
+        if (!plot.watered) {
+          const wb = this.inventory.find((s) => s.id === 'water_bottle')
+          if (wb) {
+            plot.watered = true
+            if (tile) { tile.type = 'soil_wet'; this.tileCacheDirty[this.zone] = true }
+            this.removeItem('water_bottle', 1)
+            this.flashToast('Regado! A planta vai crescer mais rápido.', 'good')
+          } else {
+            this.flashToast('A planta ainda não cresceu (regue para acelerar)', 'info')
+          }
+        } else {
+          this.flashToast('A planta ainda não cresceu...', 'info')
+        }
       } else {
-        this.flashToast('A planta ainda não cresceu', 'info')
+        // plot exists but no crop — prompt to plant
+        this.flashToast('Plante sementes (use o item semente)', 'info')
       }
       return
     }
-    // till soil if standing on grass with a hoe
-    const tile = this.tiles[this.zone][ty]?.[tx]
+
+    // till soil if standing on grass with a hoe (BEFORE gathering — so you can
+    // create a farm plot even when a tree is nearby)
     const hasHoe = this.inventory.some((s) => ITEMS[s.id]?.tool === 'hoe')
     if (tile && (tile.type === 'grass' || tile.type === 'grass2') && hasHoe) {
       this.farmPlots.push({ tileX: tx, tileY: ty, stage: 0, growth: 0, watered: false, crop: '' })
       tile.type = 'soil'
       this.tileCacheDirty[this.zone] = true
-      this.flashToast('Terra arada. Plante sementes.', 'info')
+      this.flashToast('Terra arada! Plante sementes (clique na semente no inventário).', 'good')
+      this.spawnParticles(p.x, p.y, 4, '#5a3d28')
       return
     }
-    // water plot with water bottle
+
+    // water soil (when standing on dry tilled soil with a water bottle) —
+    // creates a wet plot even without a crop, to prep for planting
     if (tile && tile.type === 'soil') {
       const wb = this.inventory.find((s) => s.id === 'water_bottle')
       if (wb) {
@@ -1204,7 +1214,57 @@ export class GameEngine {
         }
       }
     }
-    this.flashToast('Nada para interagir', 'info')
+
+    // ---- collect water from a lake/river tile you're standing NEXT to ----
+    // This lets you refill water bottles for free at any water tile.
+    if (tile && tile.type === 'water') {
+      // standing on water (edge) — fill all bottles
+      const bottles = this.countItem('water_bottle')
+      if (bottles < 99) {
+        const fill = Math.min(5, 99 - bottles)
+        this.addItem('water_bottle', fill)
+        this.spawnFloat(p.x, p.y - 20, `+${fill} água`, '#3f7fb4')
+        this.spawnParticles(p.x, p.y, 6, '#4a8fc4')
+        this.flashToast(`Encheu ${fill} garrafas de água`, 'good')
+      } else {
+        this.flashToast('Inventário cheio de água', 'info')
+      }
+      return
+    }
+    // also check adjacent tiles for water (so you can fill from the shore)
+    const adjacentWater = [
+      { dx: 0, dy: -1 }, { dx: 0, dy: 1 }, { dx: -1, dy: 0 }, { dx: 1, dy: 0 },
+      { dx: -1, dy: -1 }, { dx: 1, dy: -1 }, { dx: -1, dy: 1 }, { dx: 1, dy: 1 },
+    ]
+    for (const a of adjacentWater) {
+      const at = this.tiles[this.zone][ty + a.dy]?.[tx + a.dx]
+      if (at && at.type === 'water') {
+        const bottles = this.countItem('water_bottle')
+        if (bottles < 99) {
+          const fill = Math.min(5, 99 - bottles)
+          this.addItem('water_bottle', fill)
+          this.spawnFloat(p.x, p.y - 20, `+${fill} água`, '#3f7fb4')
+          this.spawnParticles(p.x, p.y, 6, '#4a8fc4')
+          this.flashToast(`Encheu ${fill} garrafas de água`, 'good')
+          return
+        }
+      }
+    }
+
+    // ---- LAST: gather nearby resource (tree, rock, bush, herb, ore) ----
+    let best: ResourceNode | null = null
+    let bestD = 36 * 36
+    for (const r of this.resources[this.zone]) {
+      if (!r.alive) continue
+      const dx = r.x - p.x, dy = r.y - p.y
+      const d = dx * dx + dy * dy
+      if (d < bestD) { bestD = d; best = r }
+    }
+    if (best) {
+      this.gatherResource(best)
+      return
+    }
+    this.flashToast('Nada para interagir aqui', 'info')
   }
 
   // ---- ascension: chapel (paladin) & tower (mage) -------------------------
@@ -1417,13 +1477,11 @@ export class GameEngine {
   gatherResource(r: ResourceNode) {
     const p = this.player
     // require correct tool for efficiency
-    const def: { tool?: string } = {}
     let dmg = 1
     if (r.type === 'tree') {
       if (this.inventory.some((s) => ITEMS[s.id]?.tool === 'axe')) dmg = 2
     } else if (r.type === 'rock' || r.type === 'iron' || r.type === 'coal') {
       if (this.inventory.some((s) => ITEMS[s.id]?.tool === 'pickaxe')) dmg = 2
-      else dmg = 1
     }
     r.hp -= dmg
     r.respawnAt = 0
@@ -1434,15 +1492,20 @@ export class GameEngine {
     else if (r.type === 'coal') this.addItem('coal', 1)
     else if (r.type === 'bush') this.addItem('berry', 1)
     else if (r.type === 'herb') this.addItem('herb', 1)
-    this.spawnFloat(r.x, r.y - 16, `+${r.type === 'tree' ? 'madeira' : r.type === 'rock' ? 'pedra' : r.type}`, '#c0a878')
+    const label = r.type === 'tree' ? 'madeira' : r.type === 'rock' ? 'pedra' : r.type === 'iron' ? 'ferro' : r.type === 'coal' ? 'carvão' : r.type === 'bush' ? 'baga' : r.type === 'herb' ? 'erva' : r.type
+    this.spawnFloat(r.x, r.y - 16, `+1 ${label}`, '#c0a878')
     this.spawnParticles(r.x, r.y, 4, r.type === 'tree' ? '#6e4a30' : r.type === 'bush' ? '#7cb342' : '#9d9da5')
     if (r.hp <= 0) {
       r.alive = false
-      r.respawnAt = this.playtime + 40
+      // faster respawn: trees 20s, rocks 25s, bushes/herbs 15s
+      const respawnTime = r.type === 'tree' ? 20 : r.type === 'rock' ? 25 : r.type === 'iron' ? 30 : r.type === 'coal' ? 30 : 15
+      r.respawnAt = this.playtime + respawnTime
       // bonus drop
       if (r.type === 'tree') this.addItem('wood', 2)
       if (r.type === 'rock') this.addItem('stone', 2)
+      this.spawnFloat(r.x, r.y - 28, 'Derrubado!', '#9d9da5')
       this.spawnParticles(r.x, r.y, 8, '#9d9da5')
+      this.tileCacheDirty[this.zone] = true
     }
   }
 
@@ -2455,13 +2518,18 @@ export class GameEngine {
     for (const plot of this.farmPlots) {
       if (!plot.crop) continue
       if (plot.stage >= 3) continue
-      const rate = plot.watered ? 0.05 : 0.025
+      // watered plants grow 3x faster; 8s per stage when watered, 24s when dry
+      const rate = plot.watered ? 0.125 : 0.042
       plot.growth += rate * dt
       if (plot.growth >= 1) {
         plot.stage += 1
         plot.growth = 0
+        // visual feedback when a stage advances
+        this.spawnFloat(plot.tileX * TILE + 16, plot.tileY * TILE + 10, '↑', '#7cb342')
+        this.spawnParticles(plot.tileX * TILE + 16, plot.tileY * TILE + 16, 3, '#7cb342')
         if (plot.stage >= 3) {
-          plot.growth = 0
+          this.spawnFloat(plot.tileX * TILE + 16, plot.tileY * TILE - 6, 'Pronto para colher!', '#7cb342')
+          this.spawnParticles(plot.tileX * TILE + 16, plot.tileY * TILE + 16, 8, '#f1c40f')
         }
       }
     }

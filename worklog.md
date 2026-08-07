@@ -171,3 +171,35 @@ Stage Summary:
 - Projeto pronto para Vercel: sem dependência de banco de dados, deploy é só `git push` + importar na Vercel, sem environment variables.
 - Save/load via localStorage verificado: salvou gold=999, "Continuar Jornada" apareceu no título, carregou com gold=999 correto.
 - Lint limpo, sem erros no console. README com instruções passo-a-passo criado.
+
+---
+Task ID: 8
+Agent: main (Z.ai Code)
+Task: Debug completo e correção de: sistema de arar travando, obter/beber água, troca de armas, crescimento de árvores e plantio.
+
+Work Log:
+- Debug via Agent Browser inspecionando cada sistema:
+  * Arar: BUG — `interact()` priorizava `gatherResource` (colher árvore/arbusto) sobre arar a terra. Quando o jogador estava perto de uma árvore (36px), pressionar E colhia a árvore em vez de arar.
+  * Água: BUG — não existia interação com tiles de água (lago/rio) para encher garrafa. Só dava para obter água craftando (fibra→water_bottle).
+  * Beber água: funcionava (useItem com thirst), confirmado OK.
+  * Troca de armas: funcionava (equipItem troca + devolve anterior), confirmado OK.
+  * Crescimento de árvores: funcionava mas respawn demorava 40s (lento).
+  * Plantio: funcionava mas crescimento era lento (60s para colher quando regado).
+
+Correções aplicadas:
+1. **interact() reescrito com nova ordem de prioridade:** farming (arar/plantar/regar/colher) primeiro → coletar água do lago/rio → por último coletar recursos. Assim arar funciona mesmo perto de árvores.
+2. **Encher garrafa na água:** agora dá para encher até 5 garrafas de água de uma vez ficando adjacente a qualquer tile de água (lago, rio, praia). Feedback visual com partículas azuis.
+3. **Crescimento de plantas 3x mais rápido:** regado = 8s por estágio (24s total para colher), seco = 24s por estágio. Adicionei feedback visual ("↑" verde quando cresce, "Pronto para colher!" dourado no estágio final).
+4. **Respawn de árvores mais rápido:** árvore 20s, pedra 25s, ferro/carvão 30s, arbusto/erva 15s (antes era 40s para tudo). Adicionei feedback "Derrubado!" e invalidação do tile cache.
+5. **Feedback visual em todas as interações:** arar mostra partículas marrons, regar mostra partículas azuis, colher mostra "↑" e partículas douradas.
+6. **Labels melhorados:** spawnFloat agora mostra "+1 madeira", "+1 pedra", "+1 ferro", etc. em vez de apenas o tipo.
+
+Stage Summary:
+- Todos os bugs corrigidos e verificados via Agent Browser:
+  * Arar perto de árvore: agora cria soil + farmPlot (antes colhia a árvore). ✓
+  * Encher garrafa: +5 water_bottle ao ficar adjacente a água. ✓
+  * Beber água: thirst 30→60, consome 1 garrafa. ✓
+  * Troca de armas: equipa iron_sword→devolve rusty, e vice-versa. ✓
+  * Farming completo: arar→plantar→crescer(stage 3)→colher(+2 bagas). ✓
+  * Respawn de árvore: corta→morre→respawna em ~20s. ✓
+- Lint limpo, sem erros no console.

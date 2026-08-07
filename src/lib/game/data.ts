@@ -11,8 +11,8 @@ import type {
 
 // ---- World constants ------------------------------------------------------
 export const TILE = 32
-export const MAP_W = 64
-export const MAP_H = 64
+export const MAP_W = 96
+export const MAP_H = 96
 export const DUNGEON_W = 40
 export const DUNGEON_H = 40
 export const PLAYER_SPEED = 132 // px/s walk
@@ -189,7 +189,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     kind: 'wraith', name: 'Espectro Arcano', hp: 110, damage: 24, speed: 78, xp: 55,
     gold: [10, 20], sight: 300, reach: 40, windup: 0.5, active: 0.2, recovery: 0.6,
     loot: [{ id: 'essence', chance: 0.2, min: 1, max: 1 }, { id: 'bone', chance: 0.5, min: 1, max: 2 }],
-    color: '#6c5ce7', scale: 1.1,
+    color: '#6c5ce7', scale: 1.1, nocturnal: true,
   },
   boss: {
     kind: 'boss', name: 'O Cavaleiro Silencioso', hp: 700, damage: 34, speed: 70, xp: 400,
@@ -217,7 +217,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     kind: 'vampire', name: 'Vampiro', hp: 120, damage: 24, speed: 110, xp: 52,
     gold: [10, 22], sight: 360, reach: 36, windup: 0.4, active: 0.18, recovery: 0.5,
     loot: [{ id: 'essence', chance: 0.18, min: 1, max: 1 }, { id: 'hide', chance: 0.5, min: 1, max: 2 }, { id: 'hp_potion', chance: 0.2, min: 1, max: 1 }],
-    color: '#8e1b1b', scale: 1.1,
+    color: '#8e1b1b', scale: 1.1, nocturnal: true,
   },
   lizard_bard: {
     // Lagarto Bardo — toca música que buffa inimigos próximos, frágil mas fugaz

@@ -95,9 +95,25 @@ export function Hud({ s, onUseItem, onToggleMusic }: Props) {
             )}
           </div>
         )}
+        {/* Companion indicators */}
+        {(s.elfRescued || s.dogRescued) && (
+          <div className="flex gap-1.5 mt-1">
+            {s.elfRescued && (
+              <div className="pix-slot px-1.5 py-0.5 flex items-center gap-1" title="Elfa — cura quando HP &lt; 60%">
+                <span className="text-[10px]">🧝</span>
+                <span className="text-[8px] text-green-400">cura</span>
+                {s.elfCd > 0 && <span className="text-[7px] text-amber-100/40">{Math.ceil(s.elfCd)}s</span>}
+              </div>
+            )}
+            {s.dogRescued && (
+              <div className={`pix-slot px-1.5 py-0.5 flex items-center gap-1 ${s.dogTarget >= 0 ? 'pulse-red' : ''}`} title="Cachorro — ataca o inimigo travado (Tab)">
+                <span className="text-[10px]">🐺</span>
+                <span className="text-[8px] text-orange-400">{s.dogTarget >= 0 ? 'atacando!' : 'pronto'}</span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
-
-      {/* Top-right: zone + time + gold */}
       <div className="absolute top-3 right-3 text-right space-y-1">
         <div className="pix-panel px-3 py-1.5 inline-block">
           <div className="text-[11px] font-bold text-amber-300 tracking-wider text-glow">{s.zoneName}</div>
@@ -219,10 +235,10 @@ export function Hud({ s, onUseItem, onToggleMusic }: Props) {
 
       {/* Bottom-right: controls hint */}
       <div className="absolute bottom-3 right-3 pix-panel px-3 py-2 text-[9px] text-amber-100/60 leading-relaxed hidden sm:block">
-        <div><span className="text-amber-300">WASD</span> mover · <span className="text-amber-300">J/Click</span> golpe</div>
+        <div><span className="text-amber-300">WASD</span> mover · <span className="text-amber-300">J/Click</span> golpe (mira no mouse)</div>
         <div><span className="text-amber-300">K/Dir(segure)</span> pesado/carregar · <span className="text-amber-300">Espaço</span> esquiva</div>
         <div><span className="text-amber-300">Shift</span> bloquear/parry · <span className="text-amber-300">Tab</span> mirar</div>
-        <div><span className="text-amber-300">E</span> interagir · <span className="text-amber-300">F/G</span> habilidades</div>
+        <div><span className="text-amber-300">E</span> interagir/coletar · <span className="text-amber-300">T</span> plantar/arar · <span className="text-amber-300">F/G</span> magias</div>
       </div>
 
       {/* Station / portal hint */}

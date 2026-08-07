@@ -15,7 +15,7 @@ import type {
   ZoneId, Tile, TileType, Player, Enemy, EnemyKind, Projectile, DroppedItem,
   FloatText, Particle, ResourceNode, FarmPlot, CraftingStation, Portal,
   ItemStack, SaveData, HudSnapshot, HeroClassId, Dir, EnemyDef, CraftSkill,
-  SpecialStructure,
+  SpecialStructure, Companion, CompanionKind,
 } from './types'
 import {
   drawTile, drawResourceNode, drawCrop, drawPlayer, drawEnemy, drawProjectile,
@@ -87,6 +87,13 @@ export class GameEngine {
   particles: Particle[] = []
   killFeed: { id: number; text: string; life: number }[] = []
   nearStructure: string | null = null
+
+  // companions (elf = periodic heal, dog = attacks locked enemy)
+  companions: Companion[] = []
+  elfRescued = false
+  dogRescued = false
+  // rescue encounters: elf and dog are guarded by enemies until you free them
+  rescueEncounters: { kind: CompanionKind; x: number; y: number; guardKilled: boolean; guardIds: number[] }[] = []
 
   player!: Player
   inventory: ItemStack[] = []
@@ -224,6 +231,7 @@ export class GameEngine {
     if (k === 'c') { this.toggleCrafting(); return }
     if (this.paused || this.showInventory || this.showCrafting) return
     if (k === 'e') this.interact()
+    if (k === 't') this.farmAction()
     if (k === ' ') this.dodge()
     if (k === 'j') this.attack('light')
     if (k === 'k') this.startCharge() // hold K to charge heavy; release fires it
@@ -723,6 +731,33 @@ export class GameEngine {
     this.structures.push({ id: 1, type: 'chapel', x: chapel.x * TILE, y: chapel.y * TILE, used: false })
     this.structures.push({ id: 2, type: 'tower', x: tower.x * TILE, y: tower.y * TILE, used: false })
     this.tileCacheDirty.plains = true
+    this.spawnRescueEncounters()
+  }
+
+  // spawn rescue encounters: elf & dog trapped, each guarded by enemies
+  private spawnRescueEncounters() {
+    const rng = mulberry32(this.seed + 9999)
+    this.rescueEncounters = []
+    if (this.elfRescued && this.dogRescued) return
+    const findSpot = (): { x: number; y: number } => {
+      for (let tries = 0; tries < 60; tries++) {
+        const tx = 5 + Math.floor(rng() * (MAP_W - 10))
+        const ty = 5 + Math.floor(rng() * (MAP_H - 10))
+        if (this.inSpawnClearing(tx, ty)) continue
+        const t = this.tiles.plains[ty]?.[tx]
+        if (!t || t.type === 'water' || t.solid) continue
+        return { x: tx, y: ty }
+      }
+      return { x: 12, y: 48 }
+    }
+    if (!this.elfRescued) {
+      const spot = findSpot()
+      this.rescueEncounters.push({ kind: 'elf', x: spot.x * TILE + 16, y: spot.y * TILE + 16, guardKilled: false, guardIds: [] })
+    }
+    if (!this.dogRescued) {
+      const spot = findSpot()
+      this.rescueEncounters.push({ kind: 'dog', x: spot.x * TILE + 16, y: spot.y * TILE + 16, guardKilled: false, guardIds: [] })
+    }
   }
 
   private spawnEnemies() {
@@ -798,6 +833,27 @@ export class GameEngine {
       }
       this.tileCacheDirty.plains = true
       this.enemies.push(bear)
+
+      // spawn guards for rescue encounters (elf & dog trapped by enemies)
+      for (const enc of this.rescueEncounters) {
+        if (enc.guardKilled) continue
+        enc.guardIds = []
+        const guardKinds: EnemyKind[] = ['goblin', 'goblin', 'skeleton', 'wolf']
+        const guardCount = 2 + Math.floor(rng() * 2)
+        for (let i = 0; i < guardCount; i++) {
+          const a = (i / guardCount) * Math.PI * 2
+          const gx = Math.floor((enc.x + Math.cos(a) * 60) / TILE)
+          const gy = Math.floor((enc.y + Math.sin(a) * 60) / TILE)
+          const t = this.tiles.plains[gy]?.[gx]
+          if (t && !t.solid && t.type !== 'water') {
+            const guard = this.makeEnemy(id++, guardKinds[i % guardKinds.length], gx * TILE + 16, gy * TILE + 16)
+            guard.leash = 999 // guards stay near the prisoner
+            guard.noRespawn = true // guards stay dead when killed
+            this.enemies.push(guard)
+            enc.guardIds.push(guard.id)
+          }
+        }
+      }
     } else {
       // dungeon: scatter enemies on carved floor tiles, boss in arena center
       const isFloor = (tx: number, ty: number) => {
@@ -891,6 +947,12 @@ export class GameEngine {
     // everyone gets a hoe to farm
     this.addItem('hoe', 1)
     this.addItem('torch', 1)
+    // reset companions & rescue encounters
+    this.companions = []
+    this.elfRescued = false
+    this.dogRescued = false
+    this.rescueEncounters = []
+    this.wasNight = false
     this.spawnStructures()
     this.spawnEnemies()
     this.screen = 'game'
@@ -931,6 +993,11 @@ export class GameEngine {
     // restore structure used-state from save
     if (data.chapelUsed) { const c = this.structures.find((s) => s.type === 'chapel'); if (c) c.used = true }
     if (data.towerUsed) { const tw = this.structures.find((s) => s.type === 'tower'); if (tw) tw.used = true }
+    // restore companion rescue state
+    this.elfRescued = data.elfRescued || false
+    this.dogRescued = data.dogRescued || false
+    this.companions = []
+    this.wasNight = false
     this.spawnEnemies()
     if (this.bossKilled && this.bossRef) {
       this.bossRef.alive = false
@@ -972,6 +1039,8 @@ export class GameEngine {
       ascension: p.ascension,
       chapelUsed: this.structures.some((s) => s.type === 'chapel' && s.used),
       towerUsed: this.structures.some((s) => s.type === 'tower' && s.used),
+      elfRescued: this.elfRescued,
+      dogRescued: this.dogRescued,
     }
   }
 
@@ -1158,67 +1227,24 @@ export class GameEngine {
     const tx = Math.floor(p.x / TILE), ty = Math.floor(p.y / TILE)
     const tile = this.tiles[this.zone][ty]?.[tx]
 
-    // ---- FARMING FIRST: till / plant / water / harvest takes priority over
-    // gathering, so you can farm even when standing near a tree. ----
-    const plot = this.farmPlots.find((f) => f.tileX === tx && f.tileY === ty)
-    if (plot) {
-      if (plot.stage >= 3) {
-        this.harvestCrop(plot)
-      } else if (plot.crop) {
-        // already planted — water it if we have a water bottle
-        if (!plot.watered) {
-          const wb = this.inventory.find((s) => s.id === 'water_bottle')
-          if (wb) {
-            plot.watered = true
-            if (tile) { tile.type = 'soil_wet'; this.tileCacheDirty[this.zone] = true }
-            this.removeItem('water_bottle', 1)
-            this.flashToast('Regado! A planta vai crescer mais rápido.', 'good')
-          } else {
-            this.flashToast('A planta ainda não cresceu (regue para acelerar)', 'info')
-          }
+    // ---- rescue companions (elf / dog) guarded by enemies ----
+    for (const enc of this.rescueEncounters) {
+      if (enc.guardKilled) continue
+      if (Math.hypot(enc.x - p.x, enc.y - p.y) < 40) {
+        // check if guards are dead
+        const guardsAlive = enc.guardIds.some((id) => this.enemies.find((e) => e.id === id && e.alive))
+        if (!guardsAlive) {
+          this.rescueCompanion(enc)
+          return
         } else {
-          this.flashToast('A planta ainda não cresceu...', 'info')
-        }
-      } else {
-        // plot exists but no crop — prompt to plant
-        this.flashToast('Plante sementes (use o item semente)', 'info')
-      }
-      return
-    }
-
-    // till soil if standing on grass with a hoe (BEFORE gathering — so you can
-    // create a farm plot even when a tree is nearby)
-    const hasHoe = this.inventory.some((s) => ITEMS[s.id]?.tool === 'hoe')
-    if (tile && (tile.type === 'grass' || tile.type === 'grass2') && hasHoe) {
-      this.farmPlots.push({ tileX: tx, tileY: ty, stage: 0, growth: 0, watered: false, crop: '' })
-      tile.type = 'soil'
-      this.tileCacheDirty[this.zone] = true
-      this.flashToast('Terra arada! Plante sementes (clique na semente no inventário).', 'good')
-      this.spawnParticles(p.x, p.y, 4, '#5a3d28')
-      return
-    }
-
-    // water soil (when standing on dry tilled soil with a water bottle) —
-    // creates a wet plot even without a crop, to prep for planting
-    if (tile && tile.type === 'soil') {
-      const wb = this.inventory.find((s) => s.id === 'water_bottle')
-      if (wb) {
-        const plt = this.farmPlots.find((f) => f.tileX === tx && f.tileY === ty)
-        if (plt && !plt.watered) {
-          plt.watered = true
-          tile.type = 'soil_wet'
-          this.tileCacheDirty[this.zone] = true
-          this.removeItem('water_bottle', 1)
-          this.flashToast('Regado!', 'info')
+          this.flashToast('Derrote os guardas para libertar o prisioneiro!', 'bad')
           return
         }
       }
     }
 
     // ---- collect water from a lake/river tile you're standing NEXT to ----
-    // This lets you refill water bottles for free at any water tile.
     if (tile && tile.type === 'water') {
-      // standing on water (edge) — fill all bottles
       const bottles = this.countItem('water_bottle')
       if (bottles < 99) {
         const fill = Math.min(5, 99 - bottles)
@@ -1251,7 +1277,7 @@ export class GameEngine {
       }
     }
 
-    // ---- LAST: gather nearby resource (tree, rock, bush, herb, ore) ----
+    // ---- gather nearby resource (tree, rock, bush, herb, ore) ----
     let best: ResourceNode | null = null
     let bestD = 36 * 36
     for (const r of this.resources[this.zone]) {
@@ -1265,6 +1291,87 @@ export class GameEngine {
       return
     }
     this.flashToast('Nada para interagir aqui', 'info')
+  }
+
+  // ---- farming (T key): till / plant / water / harvest ----
+  farmAction() {
+    const p = this.player
+    const tx = Math.floor(p.x / TILE), ty = Math.floor(p.y / TILE)
+    const tile = this.tiles[this.zone][ty]?.[tx]
+    const plot = this.farmPlots.find((f) => f.tileX === tx && f.tileY === ty)
+
+    // 1. harvest if crop is mature
+    if (plot && plot.stage >= 3) {
+      this.harvestCrop(plot)
+      return
+    }
+    // 2. plant seed if plot exists but has no crop
+    if (plot && !plot.crop) {
+      const seedIdx = this.inventory.findIndex((s) => ITEMS[s.id]?.category === 'seed')
+      if (seedIdx >= 0) {
+        this.useItem(seedIdx) // plants the seed
+        return
+      }
+      this.flashToast('Sem sementes para plantar', 'bad')
+      return
+    }
+    // 3. water the plot if planted but dry
+    if (plot && plot.crop && !plot.watered) {
+      const wb = this.inventory.find((s) => s.id === 'water_bottle')
+      if (wb) {
+        plot.watered = true
+        if (tile) { tile.type = 'soil_wet'; this.tileCacheDirty[this.zone] = true }
+        this.removeItem('water_bottle', 1)
+        this.flashToast('Regado! Crescimento acelerado.', 'good')
+        this.spawnParticles(p.x, p.y, 4, '#4a8fc4')
+        return
+      }
+      this.flashToast('Sem água (encha garrafas no lago com E)', 'bad')
+      return
+    }
+    // 4. till soil if on grass with a hoe
+    const hasHoe = this.inventory.some((s) => ITEMS[s.id]?.tool === 'hoe')
+    if (tile && (tile.type === 'grass' || tile.type === 'grass2') && hasHoe) {
+      this.farmPlots.push({ tileX: tx, tileY: ty, stage: 0, growth: 0, watered: false, crop: '' })
+      tile.type = 'soil'
+      this.tileCacheDirty[this.zone] = true
+      this.flashToast('Terra arada! Pressione T de novo para plantar.', 'good')
+      this.spawnParticles(p.x, p.y, 4, '#5a3d28')
+      return
+    }
+    if (plot && plot.crop && plot.watered) {
+      this.flashToast('A planta já está regada — espere crescer', 'info')
+      return
+    }
+    if (!hasHoe) {
+      this.flashToast('Precisa de uma enxada para arar (craft na bancada)', 'bad')
+      return
+    }
+    this.flashToast('Fique em grama para arar (T)', 'info')
+  }
+
+  // ---- companion rescue ----
+  private rescueCompanion(enc: { kind: CompanionKind; x: number; y: number; guardKilled: boolean; guardIds: number[] }) {
+    enc.guardKilled = true
+    const comp: Companion = {
+      id: this.nextId++,
+      kind: enc.kind,
+      x: enc.x, y: enc.y, vx: 0, vy: 0, animTime: 0,
+      rescued: true, cd: 0, target: -1, hp: 100, dir: 'down',
+    }
+    this.companions.push(comp)
+    if (enc.kind === 'elf') {
+      this.elfRescued = true
+      this.flashToast('✦ Elfa resgatada! Ela vai te curar periodicamente.', 'good')
+      this.message = 'A elfa Lirael foi liberta!\nEla te acompanha e lança curas periódicas quando sua vida está baixa.'
+      this.spawnParticles(enc.x, enc.y, 24, '#2ecc71')
+    } else {
+      this.dogRescued = true
+      this.flashToast('✦ Cachorro resgatado! Ele ataca o inimigo que você mirar (Tab).', 'good')
+      this.message = 'O cachorro Fang foi liberto!\nEle ataca automaticamente o inimigo que você travar com Tab, causando dano e segurando a atenção dele.'
+      this.spawnParticles(enc.x, enc.y, 24, '#e67e22')
+    }
+    this.spawnFloat(enc.x, enc.y - 30, 'RESGATE!', '#f1c40f')
   }
 
   // ---- ascension: chapel (paladin) & tower (mage) -------------------------
@@ -1541,6 +1648,20 @@ export class GameEngine {
     }
   }
 
+  // ---- combat: aim towards the mouse (like acclaimed action RPGs) ---------
+  // Returns the world-space angle from the player to the mouse cursor.
+  private mouseWorldAngle(): number {
+    const mx = this.input.mouseX + this.camera.x
+    const my = this.input.mouseY + this.camera.y
+    return Math.atan2(my - this.player.y, mx - this.player.x)
+  }
+
+  // face the player towards the mouse (used for attack direction + sprite)
+  private faceMouse(): void {
+    const ang = this.mouseWorldAngle()
+    this.player.dir = this.dirFromVec(Math.cos(ang), Math.sin(ang))
+  }
+
   attack(type: 'light' | 'heavy') {
     const p = this.player
     if (this.screen !== 'game' || this.paused) return
@@ -1553,10 +1674,13 @@ export class GameEngine {
       return
     }
     p.stamina -= cost
-    // lock-on: auto-face the locked target when attacking
+    // AIM: attacks follow the mouse. If locked-on (Tab), prioritize the
+    // locked target, otherwise aim at the cursor like a twin-stick / Diablo.
     if (p.lockTarget >= 0) {
       const tgt = this.enemies.find((e) => e.id === p.lockTarget && e.alive)
       if (tgt) p.dir = this.dirFromVec(tgt.x - p.x, tgt.y - p.y)
+    } else {
+      this.faceMouse()
     }
     p.attacking = type === 'heavy' ? 0.45 : 0.3
     p.attackType = type
@@ -1570,7 +1694,7 @@ export class GameEngine {
       // heavy resets combo but deals big damage
       p.comboCount = 0
     }
-    // ranged weapons spawn projectile at the moment of swing
+    // ranged weapons spawn projectile at the moment of swing — towards mouse
     if (this.equipped === 'bow' || this.equipped === 'staff') {
       // bow requires arrows (limited ammo)
       if (this.equipped === 'bow') {
@@ -1585,7 +1709,7 @@ export class GameEngine {
         this.removeItem('arrow', 1)
       }
       const speed = this.equipped === 'bow' ? 460 : 380
-      const ang = this.dirAngle(p.dir)
+      const ang = this.mouseWorldAngle()
       const comboMul = 1 + p.comboCount * 0.06
       const dmg = (def.damage || 10) * (type === 'heavy' ? 1.6 : 1) * comboMul
       this.projectiles.push({
@@ -1986,6 +2110,7 @@ export class GameEngine {
 
     this.updatePlayer(dt)
     this.updateEnemies(dt)
+    this.updateCompanions(dt)
     this.updateProjectiles(dt)
     this.updateDrops(dt)
     this.updateFarm(dt)
@@ -1995,6 +2120,7 @@ export class GameEngine {
     this.updateCamera(dt)
     this.updateShake(dt)
     this.updateMusicMood(dt)
+    this.updateNightDay(dt)
 
     // toast expire
     if (this.toast) {
@@ -2215,6 +2341,7 @@ export class GameEngine {
       // respawn
       if (!e.alive) {
         if (e.isBoss && this.bossKilled) continue
+        if (e.noRespawn) continue // guards stay dead permanently
         if (this.playtime >= e.respawnAt) {
           e.alive = true
           e.hp = e.maxHp
@@ -2597,6 +2724,124 @@ export class GameEngine {
     }
   }
 
+  // ---- companions: elf heals periodically, dog attacks locked enemy --------
+  private updateCompanions(dt: number) {
+    const p = this.player
+    for (const c of this.companions) {
+      if (!c.rescued) continue
+      c.animTime += dt
+      // follow the player, staying slightly behind
+      const dx = p.x - c.x, dy = p.y - c.y
+      const dist = Math.hypot(dx, dy)
+      if (dist > 40) {
+        const sp = c.kind === 'dog' ? 200 : 150
+        c.vx = (dx / dist) * sp
+        c.vy = (dy / dist) * sp
+        c.dir = this.dirFromVec(dx, dy)
+        this.moveEntity(c, c.vx * dt, c.vy * dt, 6)
+      } else {
+        c.vx *= 0.8; c.vy *= 0.8
+      }
+      if (c.cd > 0) c.cd -= dt
+
+      if (c.kind === 'elf') {
+        // heal the player when HP is below 60% and cooldown is ready
+        if (c.cd <= 0 && p.hp < p.maxHp * 0.6 && p.hp > 0) {
+          const heal = Math.round(p.maxHp * 0.15)
+          p.hp = Math.min(p.maxHp, p.hp + heal)
+          this.spawnFloat(p.x, p.y - 24, `+${heal} HP (elfa)`, '#2ecc71')
+          this.spawnParticles(p.x, p.y, 12, '#2ecc71')
+          c.cd = 12 // heal every 12s max
+        }
+      } else if (c.kind === 'dog') {
+        // attack the player's locked target (Tab)
+        const tgtId = p.lockTarget
+        const tgt = tgtId >= 0 ? this.enemies.find((e) => e.id === tgtId && e.alive) : null
+        if (tgt) {
+          c.target = tgtId
+          // move towards the target
+          const tdx = tgt.x - c.x, tdy = tgt.y - c.y
+          const tdist = Math.hypot(tdx, tdy)
+          if (tdist > 20) {
+            c.vx = (tdx / tdist) * 220
+            c.vy = (tdy / tdist) * 220
+            c.dir = this.dirFromVec(tdx, tdy)
+            this.moveEntity(c, c.vx * dt, c.vy * dt, 6)
+          }
+          // bite: deal limited damage + hold (slow enemy) on cooldown
+          if (c.cd <= 0 && tdist < 28) {
+            const dmg = 8 + p.level
+            this.damageEnemy(tgt, dmg, c.x - tgt.x, c.y - tgt.y, false)
+            // "hold": stagger the enemy briefly so it focuses the dog
+            tgt.stagger = Math.max(tgt.stagger, tgt.staggerMax * 0.5)
+            tgt.state = 'hurt'
+            tgt.stateTimer = Math.max(tgt.stateTimer, 0.4)
+            this.spawnFloat(tgt.x, tgt.y - 16, `🐺 ${dmg}`, '#e67e22')
+            this.spawnParticles(tgt.x, tgt.y, 4, '#e67e22')
+            c.cd = 1.2
+          }
+        } else {
+          c.target = -1
+        }
+      }
+    }
+  }
+
+  // ---- night/day cycle: spawn extra creatures at night, despawn at dawn ---
+  private nightSpawnAccum = 0
+  private wasNight = false
+  private updateNightDay(dt: number) {
+    const night = this.isNight()
+    if (this.zone !== 'plains') return
+    // at dawn (transition night→day): nocturnal creatures vanish
+    if (this.wasNight && !night) {
+      this.wasNight = false
+      for (const e of this.enemies) {
+        if (e.alive && ENEMIES[e.kind]?.nocturnal && !e.isBoss) {
+          e.alive = false
+          e.respawnAt = 0
+          this.spawnParticles(e.x, e.y, 8, '#6c5ce7')
+          this.spawnFloat(e.x, e.y - 16, 'sumiu...', '#6c5ce7')
+        }
+      }
+      this.flashToast('🌅 Amanhecer — as criaturas da noite recuaram.', 'info')
+      return
+    }
+    if (!this.wasNight && night) {
+      this.wasNight = true
+      this.flashToast('🌙 A noite cai — criaturas sombrias surgem!', 'bad')
+    }
+    // during night: spawn extra nocturnal enemies periodically
+    if (night) {
+      this.nightSpawnAccum += dt
+      if (this.nightSpawnAccum > 8) {
+        this.nightSpawnAccum = 0
+        // count existing nocturnal enemies
+        const noctCount = this.enemies.filter((e) => e.alive && ENEMIES[e.kind]?.nocturnal).length
+        if (noctCount < 8) {
+          // spawn 2-3 nocturnal creatures near the player (but not too close)
+          const kinds: EnemyKind[] = ['wraith', 'vampire', 'vampire', 'wraith']
+          const count = 2 + Math.floor(Math.random() * 2)
+          for (let i = 0; i < count; i++) {
+            const a = Math.random() * Math.PI * 2
+            const d = 200 + Math.random() * 200
+            const ex = this.player.x + Math.cos(a) * d
+            const ey = this.player.y + Math.sin(a) * d
+            const tx = Math.floor(ex / TILE), ty = Math.floor(ey / TILE)
+            const t = this.tiles.plains[ty]?.[tx]
+            if (t && !t.solid && t.type !== 'water' && !this.inSpawnClearing(tx, ty)) {
+              const k = kinds[Math.floor(Math.random() * kinds.length)]
+              const e = this.makeEnemy(this.nextId++, k, ex, ey)
+              e.leash = 600 // nocturnal enemies roam wider
+              this.enemies.push(e)
+              this.spawnParticles(ex, ey, 6, '#6c5ce7')
+            }
+          }
+        }
+      }
+    }
+  }
+
   private updateMusicMood(dt: number) {
     // determine mood: dungeon always tense; combat if a nearby enemy is
     // chasing/attacking; otherwise calm.
@@ -2783,6 +3028,20 @@ export class GameEngine {
         }
       },
     })
+    // companions (elf & dog) — drawn as entities so they sort by Y
+    for (const c of this.companions) {
+      if (!c.rescued) continue
+      ents.push({
+        y: c.y, draw: () => this.drawCompanion(ctx, c),
+      })
+    }
+    // rescue encounters (caged prisoners) drawn on the ground
+    for (const enc of this.rescueEncounters) {
+      if (enc.guardKilled) continue
+      ents.push({
+        y: enc.y, draw: () => this.drawRescueEncounter(ctx, enc),
+      })
+    }
     ents.sort((a, b) => a.y - b.y)
     for (const e of ents) e.draw()
     // projectiles
@@ -2935,6 +3194,104 @@ export class GameEngine {
     }
   }
 
+  // draw a companion (elf or dog) following the player
+  private drawCompanion(ctx: CanvasRenderingContext2D, c: Companion) {
+    const P = (x: number, y: number, w: number, h: number, col: string) => {
+      ctx.fillStyle = col
+      ctx.fillRect(Math.round(c.x + x), Math.round(c.y + y), w, h)
+    }
+    // shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.25)'
+    ctx.beginPath()
+    ctx.ellipse(c.x, c.y + 12, 8, 3, 0, 0, Math.PI * 2)
+    ctx.fill()
+    if (c.kind === 'elf') {
+      // elf: green robe, pale skin, pointed ears
+      const bob = Math.sin(c.animTime * 6) * 1
+      const cy = c.y - bob
+      // legs
+      P(-3, 6, 6, 6, '#27ae60')
+      // robe
+      P(-5, -4, 10, 12, '#2ecc71')
+      P(-5, -4, 10, 2, '#58d68d')
+      // head
+      P(-4, -14, 8, 8, '#fadbd8')
+      // ears (pointed)
+      P(-5, -13, 1, 3, '#fadbd8')
+      P(4, -13, 1, 3, '#fadbd8')
+      // hair
+      P(-5, -15, 10, 3, '#196f3d')
+      // eyes
+      P(-3, -10, 1, 1, '#1a1a1a')
+      P(2, -10, 1, 1, '#1a1a1a')
+      // healing glow when cd is low (ready to heal)
+      if (c.cd < 2) {
+        ctx.fillStyle = `rgba(46,204,113,${0.2 + Math.sin(this.playtime * 6) * 0.1})`
+        ctx.beginPath()
+        ctx.arc(c.x, c.y - 4, 14, 0, Math.PI * 2)
+        ctx.fill()
+      }
+    } else {
+      // dog: brown, four-legged, tail wagging
+      const wag = Math.sin(c.animTime * 10) * 2
+      // body
+      P(-6, -2, 12, 6, '#a04000')
+      P(-6, -2, 12, 1, '#ca6f1e')
+      // head
+      P(4, -6, 6, 6, '#a04000')
+      P(8, -4, 2, 2, '#1a1a1a') // snout
+      // ear
+      P(4, -7, 2, 3, '#7e5109')
+      // eye
+      P(7, -5, 1, 1, '#1a1a1a')
+      // legs
+      P(-5, 4, 2, 4, '#7e5109')
+      P(-1, 4, 2, 4, '#7e5109')
+      P(3, 4, 2, 4, '#7e5109')
+      // tail (wagging)
+      P(-8, -2 + wag, 3, 2, '#a04000')
+    }
+  }
+
+  // draw a rescue encounter: caged prisoner with a glow beacon
+  private drawRescueEncounter(ctx: CanvasRenderingContext2D, enc: { kind: CompanionKind; x: number; y: number; guardKilled: boolean; guardIds: number[] }) {
+    const P = (x: number, y: number, w: number, h: number, col: string) => {
+      ctx.fillStyle = col
+      ctx.fillRect(Math.round(enc.x + x), Math.round(enc.y + y), w, h)
+    }
+    // cage base
+    P(-10, 2, 20, 12, '#4a4a55')
+    P(-10, 2, 20, 2, '#6a6a75')
+    // cage bars
+    ctx.fillStyle = '#3a3a44'
+    for (let i = -8; i <= 8; i += 4) P(i, -16, 1, 20, '#5a5a65')
+    // glowing beacon above (beckons the player)
+    const glow = 0.4 + Math.sin(this.playtime * 3) * 0.2
+    ctx.fillStyle = `rgba(241,196,15,${glow})`
+    ctx.beginPath()
+    ctx.arc(enc.x, enc.y - 20, 14, 0, Math.PI * 2)
+    ctx.fill()
+    // prisoner inside
+    if (enc.kind === 'elf') {
+      P(-3, -6, 6, 8, '#2ecc71') // elf robe
+      P(-3, -12, 6, 6, '#fadbd8') // head
+    } else {
+      P(-4, -4, 8, 6, '#a04000') // dog body
+      P(2, -8, 4, 4, '#a04000') // head
+    }
+    // label
+    ctx.fillStyle = '#f1c40f'
+    ctx.font = 'bold 9px monospace'
+    ctx.textAlign = 'center'
+    const guardsAlive = enc.guardIds.some((id) => this.enemies.find((e) => e.id === id && e.alive))
+    ctx.fillText(enc.kind === 'elf' ? 'Elfa presa!' : 'Cachorro preso!', enc.x, enc.y - 36)
+    if (guardsAlive && Math.hypot(enc.x - this.player.x, enc.y - this.player.y) < 80) {
+      ctx.fillStyle = '#e74c3c'
+      ctx.font = 'bold 9px monospace'
+      ctx.fillText('⚠ Derrote os guardas (E)', enc.x, enc.y + 22)
+    }
+  }
+
   private renderDrops() {
     for (const d of this.drops) {
       const def = ITEMS[d.stack.id]
@@ -3036,6 +3393,12 @@ export class GameEngine {
       frostCd: p?.frostCd ?? 0,
       holyAura: p?.holyAura ?? 0,
       nearStructure: this.nearStructure,
+      elfRescued: this.elfRescued,
+      dogRescued: this.dogRescued,
+      elfCd: this.companions.find((c) => c.kind === 'elf')?.cd ?? 0,
+      dogCd: this.companions.find((c) => c.kind === 'dog')?.cd ?? 0,
+      dogTarget: this.companions.find((c) => c.kind === 'dog')?.target ?? -1,
+      isNight: this.isNight(),
     }
   }
 }

@@ -135,6 +135,30 @@ export interface EnemyDef {
   loot: { id: string; chance: number; min: number; max: number }[]
   color: string
   scale: number
+  /** nocturnal creatures only spawn at night and vanish at dawn */
+  nocturnal?: boolean
+}
+
+// ---------------------------------------------------------------------------
+// Companions — allies you can rescue in the world
+// ---------------------------------------------------------------------------
+export type CompanionKind = 'elf' | 'dog'
+
+export interface Companion {
+  id: number
+  kind: CompanionKind
+  x: number
+  y: number
+  vx: number
+  vy: number
+  animTime: number
+  rescued: boolean
+  /** elf: heal cooldown timer; dog: attack cooldown timer */
+  cd: number
+  /** dog: current target enemy id (-1 = none) */
+  target: number
+  hp: number
+  dir: Dir
 }
 
 // ---------------------------------------------------------------------------
@@ -267,6 +291,7 @@ export interface Enemy {
   attackCd: number // cooldown between attacks
   rangedCd: number // cooldown for ranged attacks (wraith)
   lungeCd: number // cooldown for wolf lunge
+  noRespawn?: boolean // guards stay dead permanently when killed
 }
 
 export interface Projectile {
@@ -383,6 +408,8 @@ export interface SaveData {
   ascension: 'none' | 'paladin' | 'mage'
   chapelUsed: boolean
   towerUsed: boolean
+  elfRescued: boolean
+  dogRescued: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -437,4 +464,10 @@ export interface HudSnapshot {
   frostCd: number
   holyAura: number
   nearStructure: string | null
+  elfRescued: boolean
+  dogRescued: boolean
+  elfCd: number
+  dogCd: number
+  dogTarget: number
+  isNight: boolean
 }

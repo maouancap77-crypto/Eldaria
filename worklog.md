@@ -203,3 +203,36 @@ Stage Summary:
   * Farming completo: arar→plantar→crescer(stage 3)→colher(+2 bagas). ✓
   * Respawn de árvore: corta→morre→respawna em ~20s. ✓
 - Lint limpo, sem erros no console.
+
+---
+Task ID: 9
+Agent: main (Z.ai Code)
+Task: Ataques seguem o mouse, separar tecla de farm (T), companheiros (elfa+cachorro), spawn noturno aumentado, mapa maior, criaturas noturnas somem ao amanhecer.
+
+Work Log:
+- **Combate mira no mouse:** Adicionei `mouseWorldAngle()` e `faceMouse()`. Ataques (melee e ranged) agora miram na direção do cursor do mouse (estilo Diablo/twin-stick). Se lock-on (Tab) ativo, prioriza o alvo travado. Projetis (arco/cajado) vão na direção do mouse.
+- **Tecla T para farm:** Separado `farmAction()` (T) do `interact()` (E). E agora faz: portal, estruturas, resgatar companheiros, encher água, coletar recursos. T faz: arar, plantar, regar, colher.
+- **Companheiros:**
+  * Elfa (Lirael): encontros de resgate com guardas. Ao matar guardas e interagir (E), ela é resgatada. Segue o jogador e cura 15% do HP máximo quando HP < 60% (cooldown 12s). Glow verde quando pronta para curar.
+  * Cachorro (Fang): mesmo sistema de resgate. Ataca automaticamente o inimigo travado com Tab (mordida: 8+level dano, cooldown 1.2s). "Segura" o inimigo aplicando stagger parcial.
+  * Guardas têm `noRespawn: true` (ficam mortos permanentemente após serem mortos).
+- **Spawn noturno + despawn ao amanhecer:**
+  * Espectros e Vampiros marcados como `nocturnal: true`.
+  * Durante a noite: spawn de 2-3 criaturas noturnas a cada 8s (até max 8) perto do jogador.
+  * Ao amanhecer: todas as criaturas noturnas não-boss desaparecem ("sumiu...").
+  * Toasts: "🌙 A noite cai" / "🌅 Amanhecer".
+- **Mapa maior:** 64×64 → 96×96 tiles (mais que o dobro de área).
+- **HUD atualizada:** indicadores de companions (🧝 cura / 🐺 atacando), dica de controles com T.
+
+Stage Summary:
+- Tudo verificado via Agent Browser:
+  * Mira no mouse: player faced right para inimigo à direita. ✓
+  * T para arar: grass→soil, plot criado. ✓
+  * Elfa resgatada: elfRescued=true, 1 companion. ✓
+  * Cachorro resgatado: dogRescued=true, 2 companions. ✓
+  * Elfa cura: HP 10→31 (15% de 140). ✓
+  * Cachorro ataca: inimigo 30→21 HP (9 dano), cd=1.2s. ✓
+  * Spawn noturno: 10 criaturas noturnas, 24 total. ✓
+  * Despawn ao amanhecer: 10→0 noturnos. ✓
+  * VLM confirmou companions visíveis (elfa verde + cachorro marrom). ✓
+- Lint limpo, sem erros no console. Mapa 96×96.

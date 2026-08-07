@@ -35,9 +35,11 @@ export class MusicEngine {
   private droneOscs: { osc: OscillatorNode; gain: GainNode }[] = []
 
   start() {
-    if (this.playing) return
+    if (this.playing) return // already running — don't create a duplicate context
     if (!this.enabled) return
     try {
+      // if a previous context exists (shouldn't, but just in case), close it
+      if (this.ctx) { try { this.ctx.close() } catch { /* noop */ } }
       this.ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
       this.master = this.ctx.createGain()
       this.master.gain.value = this.volume
@@ -48,8 +50,10 @@ export class MusicEngine {
       this.droneGain = this.ctx.createGain()
       this.droneGain.gain.value = 0.12
       this.droneGain.connect(this.musicGain)
+      this.droneOscs = []
       this.startDrone()
-      this.nextNoteTime = this.ctx.currentTime + 0.1
+      // reset the scheduler — never try to "catch up" from a previous session
+      this.nextNoteTime = this.ctx.currentTime + 0.15
       this.step = 0
       this.playing = true
       this.schedule()
@@ -69,13 +73,14 @@ export class MusicEngine {
     }
     this.droneOscs = []
     if (this.ctx) {
-      // fade out then close
       const ctx = this.ctx
-      if (this.master) this.master.gain.setTargetAtTime(0, ctx.currentTime, 0.2)
-      setTimeout(() => { try { ctx.close() } catch { /* noop */ } }, 600)
+      if (this.master) this.master.gain.setTargetAtTime(0, ctx.currentTime, 0.15)
+      setTimeout(() => { try { ctx.close() } catch { /* noop */ } }, 400)
     }
     this.ctx = null
     this.master = null
+    this.musicGain = null
+    this.droneGain = null
   }
 
   setEnabled(on: boolean) {
@@ -213,11 +218,21 @@ export class MusicEngine {
   private schedule = () => {
     if (!this.playing || !this.ctx) return
     const tempo = this.mood === 'combat' ? 0.42 : this.mood === 'dungeon' ? 0.55 : 0.7 // sec per step
-    // schedule notes up to 0.2s ahead
-    while (this.nextNoteTime < this.ctx.currentTime + 0.25) {
+    // CRITICAL FIX: if we've fallen behind (e.g., after a game freeze / tab
+    // switch), do NOT try to catch up by scheduling a burst of notes — that
+    // would create dozens of oscillators at once, overloading the audio graph
+    // and making the freeze worse (death spiral). Instead, reset the scheduler
+    // to "now" and continue from here.
+    if (this.nextNoteTime < this.ctx.currentTime) {
+      this.nextNoteTime = this.ctx.currentTime + 0.1
+    }
+    // cap the number of notes per schedule call to prevent storms
+    let notesScheduled = 0
+    while (this.nextNoteTime < this.ctx.currentTime + 0.25 && notesScheduled < 8) {
       this.stepNote(this.step, this.nextNoteTime)
       this.nextNoteTime += tempo
       this.step = (this.step + 1) % 32
+      notesScheduled++
     }
     // smooth mood transition
     if (this.mood !== this.targetMood) {

@@ -105,12 +105,7 @@ export class GameEngine {
   cls: HeroClassId = 'warrior'
   bossKilled = false
 
-  // off-screen tilemap cache — the single biggest perf win.
-  // Instead of redrawing ~1000 tiles (thousands of fillRects) every frame,
-  // we render the whole map to an off-screen canvas ONCE (per zone, or when
-  // tiles change), then blit just the visible viewport with one drawImage.
-  tileCache: Record<ZoneId, HTMLCanvasElement | null> = { plains: null, dungeon: null }
-  tileCacheDirty: Record<ZoneId, boolean> = { plains: true, dungeon: true }
+  // tile cache declarations moved to renderTiles() for viewport-scoped caching
 
   timeOfDay = 0.3 // 0=midnight,0.25 dawn,0.5 noon,0.75 dusk
   playtime = 0
@@ -166,6 +161,9 @@ export class GameEngine {
     this.running = false
     cancelAnimationFrame(this.rafId)
     this.unbindInput()
+    // CRITICAL: stop the music singleton so its scheduler doesn't keep
+    // running forever after this engine is disposed (e.g., hot reload).
+    this.stopMusic()
   }
 
   private hudAccum = 0
@@ -3091,44 +3089,74 @@ export class GameEngine {
     ctx.fillRect(0, 0, this.vw, this.vh)
   }
 
+  // viewport-scoped tile cache: instead of caching the ENTIRE map (which
+  // for 96×96 = 3072×3072px = 9.4M pixels takes ~5 seconds to build and
+  // freezes the game), we only cache the visible region + a margin. When
+  // the camera moves beyond the cached region, we rebuild — this takes
+  // ~15ms for ~50×35 tiles instead of ~5000ms for 96×96.
+  private tileCache: Record<ZoneId, HTMLCanvasElement | null> = { plains: null, dungeon: null }
+  private tileCacheDirty: Record<ZoneId, boolean> = { plains: true, dungeon: true }
+  private tileCacheBounds: Record<ZoneId, { x: number; y: number; w: number; h: number }> = {
+    plains: { x: 0, y: 0, w: 0, h: 0 },
+    dungeon: { x: 0, y: 0, w: 0, h: 0 },
+  }
+
   private renderTiles() {
     const ctx = this.ctx
     const tiles = this.tiles[this.zone]
-    const mw = tiles[0].length * TILE
-    const mh = tiles.length * TILE
 
-    // Build / rebuild the off-screen tile cache for this zone if needed.
-    // This turns ~1000 tiles × ~6 fillRects/frame (6000+ ops, ~156ms) into
-    // a single drawImage blit (~1ms). The cache is invalidated whenever a
-    // tile type changes at runtime (tilling soil, watering, harvesting).
-    let cache = this.tileCache[this.zone]
-    if (!cache || this.tileCacheDirty[this.zone]) {
-      if (!cache) {
-        cache = document.createElement('canvas')
-        cache.width = mw
-        cache.height = mh
-        this.tileCache[this.zone] = cache
-      }
+    // visible tile range (with a 2-tile margin so scrolling is smooth)
+    const margin = 2
+    const tx0 = Math.max(0, Math.floor(this.camera.x / TILE) - margin)
+    const ty0 = Math.max(0, Math.floor(this.camera.y / TILE) - margin)
+    const tx1 = Math.min(tiles[0].length - 1, Math.ceil((this.camera.x + this.vw) / TILE) + margin)
+    const ty1 = Math.min(tiles.length - 1, Math.ceil((this.camera.y + this.vh) / TILE) + margin)
+    const tw = tx1 - tx0 + 1
+    const th = ty1 - ty0 + 1
+
+    // check if we need to rebuild the cache (dirty, or camera moved out of cached region)
+    const bounds = this.tileCacheBounds[this.zone]
+    const needRebuild =
+      this.tileCacheDirty[this.zone] ||
+      !this.tileCache[this.zone] ||
+      tx0 < bounds.x || ty0 < bounds.y ||
+      tx0 + tw > bounds.x + bounds.w || ty0 + th > bounds.y + bounds.h
+
+    if (needRebuild) {
+      // cache a region slightly larger than visible so small camera movements don't trigger rebuilds
+      const pad = 4
+      const cx0 = Math.max(0, tx0 - pad)
+      const cy0 = Math.max(0, ty0 - pad)
+      const cx1 = Math.min(tiles[0].length - 1, tx1 + pad)
+      const cy1 = Math.min(tiles.length - 1, ty1 + pad)
+      const cw = cx1 - cx0 + 1
+      const ch = cy1 - cy0 + 1
+      const cache = document.createElement('canvas')
+      cache.width = cw * TILE
+      cache.height = ch * TILE
       const cctx = cache.getContext('2d')!
       cctx.imageSmoothingEnabled = false
-      cctx.clearRect(0, 0, mw, mh)
-      for (let y = 0; y < tiles.length; y++) {
-        for (let x = 0; x < tiles[0].length; x++) {
-          const t = tiles[y][x]
+      for (let y = 0; y < ch; y++) {
+        for (let x = 0; x < cw; x++) {
+          const t = tiles[cy0 + y][cx0 + x]
           drawTile(cctx, t.type, x * TILE, y * TILE, t.v)
         }
       }
+      this.tileCache[this.zone] = cache
+      this.tileCacheBounds[this.zone] = { x: cx0, y: cy0, w: cw, h: ch }
       this.tileCacheDirty[this.zone] = false
     }
 
-    // Blit just the visible viewport from the cache (one drawImage call).
-    const sx = Math.max(0, Math.round(this.camera.x))
-    const sy = Math.max(0, Math.round(this.camera.y))
-    const sw = Math.min(mw - sx, Math.round(this.vw))
-    const sh = Math.min(mh - sy, Math.round(this.vh))
-    if (sw > 0 && sh > 0) {
-      ctx.drawImage(cache, sx, sy, sw, sh, sx, sy, sw, sh)
-    }
+    // blit the cached region (one drawImage call)
+    const cache = this.tileCache[this.zone]!
+    const b = this.tileCacheBounds[this.zone]
+    // source: offset within the cache canvas
+    const sx = (tx0 - b.x) * TILE
+    const sy = (ty0 - b.y) * TILE
+    // dest: world coordinates
+    const dx = tx0 * TILE
+    const dy = ty0 * TILE
+    ctx.drawImage(cache, sx, sy, tw * TILE, th * TILE, dx, dy, tw * TILE, th * TILE)
   }
 
   private renderResourcesBelow() {

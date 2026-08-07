@@ -236,3 +236,31 @@ Stage Summary:
   * Despawn ao amanhecer: 10→0 noturnos. ✓
   * VLM confirmou companions visíveis (elfa verde + cachorro marrom). ✓
 - Lint limpo, sem erros no console. Mapa 96×96.
+
+---
+Task ID: 10
+Agent: main (Z.ai Code)
+Task: Debug completo de travamentos: jogo travando, som congelando/aumentando, Continue não funciona.
+
+Work Log:
+- Debug via Agent Browser: identifiquei 3 bugs causando os travamentos:
+
+BUG 1 — Cache do tilemap síncrono (5 segundos de freeze):
+O mapa aumentou para 96×96 (3072×3072 pixels). O cache off-screen do tilemap inteiro levava 4811ms para construir, congelando o jogo por ~5 segundos a cada load/Continue. Era a causa principal do "Continue trava".
+CORREÇÃO: Reescrevi renderTiles() para usar cache viewport-scoped — só renderiza os tiles visíveis + margem (~54×32 = 1728 tiles) em vez de todos os 9216. O cache é reconstruído apenas quando a câmera se move além da região cacheada. Tempo: 4811ms → ~700ms (inicial) → 0.4ms (cached).
+
+BUG 2 — Motor de música com "tempestade de recuperação" (death spiral):
+O scheduler de áudio tinha `while (nextNoteTime < currentTime + 0.25)` sem reset. Se o jogo congelasse brevemente, nextNoteTime ficava atrás de currentTime e o loop tentava recuperar dezenas de notas de uma vez → criava uma explosão de osciladores → mais congelamento → mais recuperação → espiral de morte. Era a causa do "som travando, ficando estático enquanto aumenta".
+CORREÇÃO: Adicionei reset de nextNoteTime quando fica atrás de currentTime, e um cap de 8 notas por chamada do scheduler.
+
+BUG 3 — dispose() não parava a música:
+Quando o engine era disposed (hot reload, unmount), o scheduler de música continuava rodando para sempre com um AudioContext órfão. Cada nova sessão criava um novo contexto sem fechar o anterior.
+CORREÇÃO: dispose() agora chama stopMusic() que para o scheduler, fecha osciladores drone e fecha o AudioContext.
+
+Stage Summary:
+- Todos os 3 bugs corrigidos e verificados via Agent Browser:
+  * Continue: carrega em ~2.5s (era 5s+ freeze), screen=game, gold correto. ✓
+  * 3 ciclos quit/continue: todos funcionando, sem acúmulo de áudio. ✓
+  * FPS: 61 (estável) após Continue. ✓
+  * Sem erros no console. ✓
+- Lint limpo. Mapa 96×96 mantido com cache viewport-scoped.

@@ -6,7 +6,7 @@ import {
   PLAYER_SPEED, PLAYER_SPRINT, DODGE_SPEED, DODGE_TIME, IFRAME_TIME, DODGE_CD,
   STAMINA_DODGE, STAMINA_ATTACK, STAMINA_HEAVY, STAMINA_BLOCK_HIT,
   STAMINA_REGEN, STAMINA_REGEN_BLOCK, MANA_REGEN, HUNGER_RATE, THIRST_RATE,
-  HP_REGEN_WELLFED, DAY_LENGTH,
+HP_REGEN_WELLFED, DAY_LENGTH, MAX_INVENTORY,
   ITEMS, RECIPES, CLASSES, ENEMIES, xpForLevel, statsForClass, CRAFT_SKILLS,
   craftXpForLevel, ZONE_NAMES,
 } from './data'
@@ -135,8 +135,9 @@ export class GameEngine {
   musicMood: 'calm' | 'combat' | 'dungeon' = 'calm'
   private combatMusicTimer = 0 // counts down after last hit to fade out combat music
 
-  toast: { id: number; text: string; kind: 'info' | 'good' | 'bad' } | null = null
+toast: { id: number; text: string; kind: 'info' | 'good' | 'bad' } | null = null
   message: string | null = null
+  private fullToastCd = 0
 
   nextId = 1
   rafId = 0
@@ -1077,7 +1078,31 @@ comboCount: 0, comboTimer: 0, chargeTime: 0, lockTarget: -1, poise: 60, stagger:
     }
   }
 
-  // ---- inventory helpers --------------------------------------------------
+// ---- inventory helpers --------------------------------------------------
+  /** Number of spare slots available before the inventory is full. */
+  freeSlots(): number {
+    return Math.max(0, MAX_INVENTORY - this.inventory.length)
+  }
+
+  /**
+   * True if `qty` of `id` could be added without exceeding MAX_INVENTORY.
+   * Account for stacking into existing, partially-filled stacks.
+   */
+  canFit(id: string, qty: number): boolean {
+    const def = ITEMS[id]
+    if (!def) return false
+    let remaining = qty
+    let slots = this.freeSlots()
+    for (const s of this.inventory) {
+      if (s.id === id && s.qty < def.max) {
+        const add = Math.min(def.max - s.qty, remaining)
+        remaining -= add
+        if (remaining <= 0) return true
+      }
+    }
+    return slots >= Math.ceil(remaining / def.max)
+  }
+
   addItem(id: string, qty: number): boolean {
     const def = ITEMS[id]
     if (!def) return false
@@ -1091,6 +1116,14 @@ comboCount: 0, comboTimer: 0, chargeTime: 0, lockTarget: -1, poise: 60, stagger:
       }
     }
     while (remaining > 0) {
+// enforce max inventory capacity
+      if (this.inventory.length >= MAX_INVENTORY) {
+        const dropped = remaining
+        this.dropItemWorld(this.player.x, this.player.y, id, dropped)
+        this.spawnFloat(this.player.x, this.player.y - 24, 'Inventário cheio!', '#e74c3c')
+        this.flashToast('Inventário cheio — item caiu no chão', 'bad')
+        return false
+      }
       const add = Math.min(def.max, remaining)
       this.inventory.push({ id, qty: add })
       remaining -= add
@@ -1218,8 +1251,13 @@ comboCount: 0, comboTimer: 0, chargeTime: 0, lockTarget: -1, poise: 60, stagger:
       this.flashToast(`Requer ${r.craftLevel.skill} nv ${r.craftLevel.level}`, 'bad')
       return
     }
-    if (!this.hasItems(r.inputs)) {
+if (!this.hasItems(r.inputs)) {
       this.flashToast('Materiais insuficientes', 'bad')
+      return
+    }
+    // check the crafted output would fit before consuming inputs
+    if (!this.canFit(r.output.id, r.output.qty)) {
+      this.flashToast('Inventário cheio — não há espaço para o item', 'bad')
       return
     }
     for (const inp of r.inputs) this.removeItem(inp.id, inp.qty)
@@ -1669,7 +1707,12 @@ this.damageEnemy(e, 30 + p.level * 2, dx, dy, false)
     this.flashToast(to === 'plains' ? 'Planície Dourada' : 'Cripta do Silêncio', 'info')
   }
 
-  // ---- combat -------------------------------------------------------------
+// ---- combat -------------------------------------------------------------
+  /** Damage multiplier that grows with player level (+5% per level). */
+  private levelDamageMul(): number {
+    return 1 + (this.player.level - 1) * 0.05
+  }
+
   private weaponStats() {
     const def = ITEMS[this.equipped]
     if (def && def.category === 'weapon') return def
@@ -1742,8 +1785,8 @@ this.damageEnemy(e, 30 + p.level * 2, dx, dy, false)
       }
       const speed = this.equipped === 'bow' ? 460 : 380
       const ang = this.mouseWorldAngle()
-      const comboMul = 1 + p.comboCount * 0.06
-      const dmg = (def.damage || 10) * (type === 'heavy' ? 1.6 : 1) * comboMul
+const comboMul = 1 + p.comboCount * 0.06
+      const dmg = (def.damage || 10) * (type === 'heavy' ? 1.6 : 1) * comboMul * this.levelDamageMul()
       this.projectiles.push({
         id: this.nextId++,
         x: p.x + Math.cos(ang) * 16,
@@ -1867,9 +1910,9 @@ this.damageEnemy(e, 30 + p.level * 2, dx, dy, false)
     const reach = def.reach || 38
     const arc = def.arc || 1.4
     const heavy = p.attackType === 'heavy'
-    const comboMul = 1 + p.comboCount * 0.06
+const comboMul = 1 + p.comboCount * 0.06
     const chargeMul = heavy ? this._chargeBonus : 1
-    const baseDmg = (def.damage || 10) * (heavy ? 1.6 : 1) * comboMul * chargeMul
+    const baseDmg = (def.damage || 10) * (heavy ? 1.6 : 1) * comboMul * chargeMul * this.levelDamageMul()
     // reset charge bonus after the hit lands
     if (heavy) this._chargeBonus = 1
     let hitAny = false
@@ -1937,12 +1980,17 @@ this.damageEnemy(e, 30 + p.level * 2, dx, dy, false)
     e.alive = false
     e.state = 'dead'
     e.respawnAt = this.playtime + (e.isBoss ? 120 : 38)
-    const def = ENEMIES[e.kind]
-    // XP
+const def = ENEMIES[e.kind]
+    // XP (+50% bonus for nocturnal creatures — dangerous at night)
     const p = this.player
-    p.xp += def.xp
+    const nightBonus = def.nocturnal ? 1.5 : 1
+    const xpGain = Math.round(def.xp * nightBonus)
+    p.xp += xpGain
     p.kills += 1
-    this.spawnFloat(e.x, e.y - 28, `+${def.xp} XP`, '#9b59b6')
+    this.spawnFloat(e.x, e.y - 28, `+${xpGain} XP${def.nocturnal ? ' 🌙' : ''}`, '#9b59b6')
+    if (def.nocturnal) {
+      this.spawnFloat(e.x, e.y - 44, 'BÔNUS DA NOITE!', '#6c5ce7')
+    }
     // level up
     while (p.xp >= p.xpNext) {
       p.xp -= p.xpNext
@@ -2154,11 +2202,12 @@ this.damageEnemy(e, 30 + p.level * 2, dx, dy, false)
     this.updateMusicMood(dt)
     this.updateNightDay(dt)
 
-    // toast expire
+// toast expire
     if (this.toast) {
       this.toastTimer -= dt
       if (this.toastTimer <= 0) this.toast = null
     }
+    if (this.fullToastCd > 0) this.fullToastCd -= dt
 
     // autosave every 25s
     this.autoSaveTimer += dt
@@ -2659,11 +2708,20 @@ this.damageEnemy(e, 30 + p.level * 2, dx, dy, false)
         d.x += (dx / dist) * 120 * dt
         d.y += (dy / dist) * 120 * dt
       }
-      if (dist < 16) {
-        this.addItem(d.stack.id, d.stack.qty)
-        const def = ITEMS[d.stack.id]
-        this.spawnFloat(p.x, p.y - 20, `+${d.stack.qty} ${def?.name ?? d.stack.id}`, '#7cb342')
-        d.life = 0
+if (dist < 16) {
+        if (this.canFit(d.stack.id, d.stack.qty)) {
+          this.addItem(d.stack.id, d.stack.qty)
+          const def = ITEMS[d.stack.id]
+          this.spawnFloat(p.x, p.y - 20, `+${d.stack.qty} ${def?.name ?? d.stack.id}`, '#7cb342')
+          d.life = 0
+} else {
+          // inventory full — item stays on the ground (throttle toast)
+          if (this.fullToastCd <= 0) {
+            this.flashToast('Inventário cheio!', 'bad')
+            this.fullToastCd = 1
+          }
+          if (Math.random() < 0.1) this.spawnFloat(d.x, d.y - 14, 'cheio!', '#e74c3c')
+        }
       }
     }
     this.drops = this.drops.filter((d) => d.life > 0)

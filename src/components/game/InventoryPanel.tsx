@@ -44,35 +44,43 @@ export function InventoryPanel({ s, onUseItem, onEquip, onDrop, onClose }: Props
 
         <div className="flex flex-1 min-h-0">
           {/* grid */}
-          <div className="flex-1 p-3 overflow-y-auto eldoria-scroll">
-            {s.inventory.length === 0 ? (
-              <div className="text-center text-amber-100/40 text-xs py-12">Vazio. Explore Eldoria e colete recursos.</div>
-            ) : (
-              <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
-                {s.inventory.map((st, i) => {
-                  const d = ITEMS[st.id]
-                  const active = i === sel
-                  const equipped = s.equipped === st.id
-                  return (
-                    <button
-                      key={i}
-                      onClick={() => setSel(i)}
-                      className={`pix-slot aspect-square flex flex-col items-center justify-center relative ${active ? 'ring-2 ring-amber-400' : ''} ${equipped ? 'equipped' : ''}`}
-                    >
-                      <ItemIcon sprite={d?.sprite || 'it_wood'} size={30} />
-                      {st.qty > 1 && (
-                        <span className="absolute bottom-0.5 right-1 text-[10px] font-bold text-amber-200 text-glow">
-                          {st.qty}
-                        </span>
-                      )}
-                      {equipped && (
-                        <span className="absolute top-0.5 left-1 text-[8px] text-amber-300">E</span>
-                      )}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
+<div className="flex-1 p-3 overflow-y-auto eldoria-scroll">
+            {/* Fixed 12-slot grid so the player always sees their capacity */}
+            <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
+              {Array.from({ length: 12 }).map((_, i) => {
+                const st = s.inventory[i]
+                const d = st ? ITEMS[st.id] : null
+                const active = i === sel
+                const equipped = st && s.equipped === st.id
+                return (
+                  <button
+                    key={i}
+                    onClick={() => st && setSel(i)}
+                    className={`pix-slot aspect-square flex flex-col items-center justify-center relative ${st ? '' : 'opacity-30'} ${active ? 'ring-2 ring-amber-400' : ''} ${equipped ? 'equipped' : ''}`}
+                    title={st ? (d?.name || '') : 'Slot vazio'}
+                  >
+                    {st && d ? (
+                      <>
+                        <ItemIcon sprite={d.sprite || 'it_wood'} size={30} />
+                        {st.qty > 1 && (
+                          <span className="absolute bottom-0.5 right-1 text-[10px] font-bold text-amber-200 text-glow">
+                            {st.qty}
+                          </span>
+                        )}
+                        {equipped && (
+                          <span className="absolute top-0.5 left-1 text-[8px] text-amber-300">E</span>
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-[10px] text-amber-100/20">{i + 1}</span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+            <div className="mt-2 text-[9px] text-amber-100/40 text-center">
+              {s.inventory.length}/12 slots · A barra de acesso rápido (1–6) usa os primeiros itens
+            </div>
           </div>
 
           {/* detail */}

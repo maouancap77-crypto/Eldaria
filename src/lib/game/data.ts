@@ -33,6 +33,9 @@ export const THIRST_RATE = 0.26
 export const HP_REGEN_WELLFED = 0.6
 export const DAY_LENGTH = 180 // seconds for full day/night cycle
 
+/** Max number of item stacks the player can carry in the inventory. */
+export const MAX_INVENTORY = 12
+
 // ---- Items ----------------------------------------------------------------
 export const ITEMS: Record<string, ItemDef> = {
   // Weapons

@@ -31,8 +31,11 @@ export class MusicEngine {
   enabled = true
   private volume = 0.5
 
-  // drone oscillators (kept alive while playing)
+// drone oscillators (kept alive while playing)
   private droneOscs: { osc: OscillatorNode; gain: GainNode }[] = []
+  // the actual drone tone oscillators (sines) — these are the ones we retune.
+  // LFOs are intentionally NOT tracked here so retuneDrone() never touches them.
+  private toneOscs: OscillatorNode[] = []
 
   start() {
     if (this.playing) return // already running — don't create a duplicate context
@@ -50,7 +53,8 @@ export class MusicEngine {
       this.droneGain = this.ctx.createGain()
       this.droneGain.gain.value = 0.12
       this.droneGain.connect(this.musicGain)
-      this.droneOscs = []
+this.droneOscs = []
+      this.toneOscs = []
       this.startDrone()
       // reset the scheduler — never try to "catch up" from a previous session
       this.nextNoteTime = this.ctx.currentTime + 0.15
@@ -68,10 +72,11 @@ export class MusicEngine {
       clearTimeout(this.schedTimer)
       this.schedTimer = null
     }
-    for (const d of this.droneOscs) {
+for (const d of this.droneOscs) {
       try { d.osc.stop() } catch { /* noop */ }
     }
     this.droneOscs = []
+    this.toneOscs = []
     if (this.ctx) {
       const ctx = this.ctx
       if (this.master) this.master.gain.setTargetAtTime(0, ctx.currentTime, 0.15)
@@ -118,10 +123,12 @@ export class MusicEngine {
       lfo.connect(lfoGain)
       lfoGain.connect(g.gain)
       lfo.start()
-      osc.connect(g)
+osc.connect(g)
       g.connect(this.droneGain)
       osc.start()
       this.droneOscs.push({ osc, gain: g })
+      // only the actual drone tones are retunable; LFOs are excluded
+      this.toneOscs.push(osc)
       this.droneOscs.push({ osc: lfo, gain: lfoGain })
     }
   }
@@ -131,11 +138,10 @@ export class MusicEngine {
     const base = SCALES[this.mood][0] / 2
     const freqs = [base, base * 1.5, base * 2]
     let i = 0
-    for (const d of this.droneOscs) {
-      if (d.osc.type === 'sine' && i < freqs.length) {
-        d.osc.frequency.setTargetAtTime(freqs[i], this.ctx.currentTime, 1.5)
-        i++
-      }
+    for (const osc of this.toneOscs) {
+      if (i >= freqs.length) break
+      osc.frequency.setTargetAtTime(freqs[i], this.ctx.currentTime, 1.5)
+      i++
     }
   }
 

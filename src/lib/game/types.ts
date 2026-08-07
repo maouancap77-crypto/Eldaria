@@ -303,7 +303,7 @@ export interface Projectile {
   life: number
   damage: number
   fromPlayer: boolean
-  kind: 'arrow' | 'bolt' | 'fire' | 'frost'
+kind: 'arrow' | 'bolt' | 'fire' | 'frost' | 'fireball'
 }
 
 export interface DroppedItem {
@@ -416,7 +416,8 @@ export interface SaveData {
 // HUD snapshot (what React reads each frame)
 // ---------------------------------------------------------------------------
 export interface HudSnapshot {
-  screen: 'title' | 'class' | 'game' | 'dead' | 'win'
+  screen: 'title' | 'class' | 'game' | 'dead' | 'win' | 'loading'
+  loadingText?: string
   cls: HeroClassId
   heroName: string
   level: number
@@ -466,8 +467,7 @@ export interface HudSnapshot {
   nearStructure: string | null
   elfRescued: boolean
   dogRescued: boolean
-  elfCd: number
+elfCd: number
   dogCd: number
   dogTarget: number
-  isNight: boolean
 }

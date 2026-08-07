@@ -14,7 +14,7 @@ const initialSnap: HudSnapshot = {
   toast: null, paused: false, showInventory: false, showCrafting: false, message: null, killFeed: [],
   comboCount: 0, comboTimer: 0, lockTarget: -1, musicEnabled: true, musicMood: 'calm', parryReady: false,
   ascension: 'none', arrows: 0, holyCd: 0, fireballCd: 0, frostCd: 0, holyAura: 0, nearStructure: null,
-  elfRescued: false, dogRescued: false, elfCd: 0, dogCd: 0, dogTarget: -1, isNight: false,
+  elfRescued: false, dogRescued: false, elfCd: 0, dogCd: 0, dogTarget: -1,
 }
 
 // ---- localStorage persistence (no DB needed — works on Vercel) ------------

@@ -36,6 +36,12 @@ function mulberry32(seed: number) {
 
 const T = (type: TileType, solid = false, v = 0): Tile => ({ type, solid, v })
 
+// Yield to the browser's main thread so a long synchronous operation (world
+// generation, tile-cache build) doesn't freeze the UI / audio scheduler.
+function yieldToMain(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0))
+}
+
 // ---- input ----------------------------------------------------------------
 interface InputState {
   keys: Set<string>
@@ -68,7 +74,8 @@ export class GameEngine {
   vw = 0
   vh = 0
 
-  screen: 'title' | 'class' | 'game' | 'dead' | 'win' = 'title'
+  screen: 'title' | 'class' | 'game' | 'dead' | 'win' | 'loading' = 'title'
+  loadingText = ''
   paused = false
   showInventory = false
   showCrafting = false
@@ -398,7 +405,7 @@ export class GameEngine {
     return true
   }
 
-  private genPlains(seed: number) {
+  private async genPlains(seed: number) {
     const rng = mulberry32(seed)
     const tiles: Tile[][] = []
     // base terrain with subtle noise variation
@@ -411,6 +418,7 @@ export class GameEngine {
       }
       tiles.push(row)
     }
+    await yieldToMain()
 
     // ---- 1. Lakes: 1-3 random lakes, away from spawn ----
     const lakeCount = 1 + Math.floor(rng() * 3)
@@ -449,6 +457,7 @@ export class GameEngine {
         }
       }
     }
+    await yieldToMain()
 
     // ---- 3. Paths: a cross or L-shaped path through spawn ----
     const pathStyle = Math.floor(rng() * 3)
@@ -514,6 +523,7 @@ export class GameEngine {
     // scattered bushes and herbs
     placeCluster('bush', 18 + Math.floor(rng() * 10))
     placeCluster('herb', 14 + Math.floor(rng() * 10))
+    await yieldToMain()
 
     // ---- 5. Ruins: scattered wall-tile blocks (decorative + solid) ----
     const ruinCount = 2 + Math.floor(rng() * 3)
@@ -596,7 +606,7 @@ export class GameEngine {
 
   private dungeonPortalPos = { x: 32, y: 4 }
 
-  private genDungeon(seed: number) {
+  private async genDungeon(seed: number) {
     // Procedural dungeon: random rooms connected by corridors, with a boss
     // arena at the far end. Layout changes every playthrough.
     const rng = mulberry32(seed ^ 0x9e37)
@@ -607,6 +617,7 @@ export class GameEngine {
       for (let x = 0; x < W; x++) row.push(T('wall', true, Math.floor(rng() * 1000)))
       tiles.push(row)
     }
+    await yieldToMain()
     const carve = (x0: number, y0: number, w: number, h: number) => {
       for (let y = y0; y < y0 + h; y++)
         for (let x = x0; x < x0 + w; x++)
@@ -645,6 +656,7 @@ export class GameEngine {
       rooms.push({ x: rx, y: ry, w: rw, h: rh, cx, cy })
       lastCx = cx; lastCy = cy
     }
+    await yieldToMain()
 
     // boss arena: large room at the bottom
     const bossW = 10 + Math.floor(rng() * 4)
@@ -905,12 +917,27 @@ export class GameEngine {
   }
 
   // ---- game start / load --------------------------------------------------
-  startGame(heroName: string, cls: HeroClassId) {
+  private async buildWorld(seed: number): Promise<void> {
+    this.loadingText = 'Gerando relevo...'
+    await this.genPlains(seed)
+    this.loadingText = 'Escavando a masmorra...'
+    await this.genDungeon(seed)
+    this.loadingText = 'Povoando Eldoria...'
+    this.spawnStructures()
+    this.spawnEnemies()
+    this.loadingText = 'Finalizando...'
+    await yieldToMain()
+    // warm up the visible tile cache so the first gameplay frame is smooth
+    this.prebuildTileCache()
+    this.loadingText = ''
+  }
+
+  async startGame(heroName: string, cls: HeroClassId) {
     this.heroName = heroName || 'Herói'
     this.cls = cls
     this.seed = (Date.now() & 0xffff) + Math.floor(Math.random() * 9999)
-    this.genPlains(this.seed)
-    this.genDungeon(this.seed)
+    this.screen = 'loading'
+    this.emit()
     this.zone = 'plains'
     this.farmPlots = []
     this.bossKilled = false
@@ -946,22 +973,25 @@ export class GameEngine {
     this.addItem('hoe', 1)
     this.addItem('torch', 1)
     // reset companions & rescue encounters
-    this.companions = []
+this.companions = []
     this.elfRescued = false
     this.dogRescued = false
     this.rescueEncounters = []
     this.wasNight = false
-    this.spawnStructures()
-    this.spawnEnemies()
+    await this.buildWorld(this.seed)
     this.screen = 'game'
     this.paused = false
     this.toast = { id: this.nextId++, text: 'Você desperta em Eldoria... sobreviva.', kind: 'info' }
     this.startMusic()
   }
 
-  loadSave(data: SaveData) {
-    this.genPlains(data.seed || 12345)
-    this.genDungeon(data.seed || 12345)
+  async loadSave(data: SaveData) {
+    this.screen = 'loading'
+    this.emit()
+    const seed = data.seed || 12345
+    this.seed = seed
+    await this.genPlains(seed)
+    await this.genDungeon(seed)
     this.zone = data.zone
     this.farmPlots = data.farmPlots || []
     this.bossKilled = data.bossKilled
@@ -984,23 +1014,28 @@ export class GameEngine {
       attacking: 0, attackType: null, attackCd: 0,
       dodgeTimer: 0, dodgeCd: 0, iframes: 0, blocking: false, blockHeldTime: 0, parryTimer: 0, hitFlash: 0,
       animTime: 0, moving: false, kills: data.kills, deaths: data.deaths, playtime: data.playtime, invuln: 0,
-      comboCount: 0, comboTimer: 0, chargeTime: 0, lockTarget: -1, poise: 60, stagger: 0,
+comboCount: 0, comboTimer: 0, chargeTime: 0, lockTarget: -1, poise: 60, stagger: 0,
       ascension: data.ascension || 'none', holyCd: 0, fireballCd: 0, frostCd: 0, holyAura: 0,
     }
-    this.spawnStructures()
-    // restore structure used-state from save
-    if (data.chapelUsed) { const c = this.structures.find((s) => s.type === 'chapel'); if (c) c.used = true }
-    if (data.towerUsed) { const tw = this.structures.find((s) => s.type === 'tower'); if (tw) tw.used = true }
-    // restore companion rescue state
+    // restore companion rescue state BEFORE spawning so rescue encounters
+    // respect which companions were already freed in the save
     this.elfRescued = data.elfRescued || false
     this.dogRescued = data.dogRescued || false
     this.companions = []
     this.wasNight = false
+    this.spawnStructures()
+    // restore structure used-state from save
+    if (data.chapelUsed) { const c = this.structures.find((s) => s.type === 'chapel'); if (c) c.used = true }
+    if (data.towerUsed) { const tw = this.structures.find((s) => s.type === 'tower'); if (tw) tw.used = true }
     this.spawnEnemies()
     if (this.bossKilled && this.bossRef) {
       this.bossRef.alive = false
       this.bossRef.respawnAt = 0
     }
+    this.loadingText = 'Finalizando...'
+    await yieldToMain()
+    this.prebuildTileCache()
+    this.loadingText = ''
     this.screen = 'game'
     this.paused = false
     this.toast = { id: this.nextId++, text: 'Jornada retomada.', kind: 'info' }
@@ -1403,8 +1438,8 @@ export class GameEngine {
         this.flashToast('A torre dorme. Volte à noite...', 'info')
         return
       }
-      if (p.ascension !== 'none') {
-        this.flashToast(`Sua senda já está traçada: ${p.ascension === 'paladino' ? 'Paladino' : 'Mago'}`, 'info')
+if (p.ascension !== 'none') {
+        this.flashToast(`Sua senda já está traçada: ${p.ascension === 'paladin' ? 'Paladino' : 'Mago'}`, 'info')
         return
       }
       if (s.used) {
@@ -1524,10 +1559,9 @@ export class GameEngine {
       const dx = e.x - p.x, dy = e.y - p.y
       const dist = Math.hypot(dx, dy)
       if (dist > 140) continue
-      this.damageEnemy(e, 30 + p.level * 2, dx, dy, false)
+this.damageEnemy(e, 30 + p.level * 2, dx, dy, false)
       // freeze: stagger them
       e.stagger = e.staggerMax
-      e.state = 'hurt'
       e.stateTimer = 2
       this.spawnParticles(e.x, e.y, 8, '#74b9ff')
     }
@@ -2565,10 +2599,6 @@ export class GameEngine {
           }
           break
         }
-        case 'hurt':
-          e.stateTimer -= dt
-          if (e.stateTimer <= 0) e.state = 'chase'
-          break
       }
     }
   }
@@ -2911,6 +2941,10 @@ export class GameEngine {
       this.renderBackdrop()
       return
     }
+    if (this.screen === 'loading') {
+      this.renderLoading()
+      return
+    }
     // screen shake offset
     let shx = 0, shy = 0
     if (this.shakeTime > 0) {
@@ -3087,6 +3121,46 @@ export class GameEngine {
     g.addColorStop(1, '#0d0a14')
     ctx.fillStyle = g
     ctx.fillRect(0, 0, this.vw, this.vh)
+  }
+
+  private renderLoading() {
+    const ctx = this.ctx
+    this.renderBackdrop()
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'
+    ctx.fillRect(0, 0, this.vw, this.vh)
+    const text = this.loadingText || 'Gerando mundo...'
+    // pulsing indicator so the player can see the game is alive
+    const pulse = 0.5 + Math.sin(performance.now() / 250) * 0.3
+    ctx.fillStyle = `rgba(241,196,15,${pulse})`
+    ctx.font = `bold 28px ${getComputedStyle(this.canvas).fontFamily || 'monospace'}`
+    ctx.textAlign = 'center'
+    ctx.fillText('GERANDO', this.vw / 2, this.vh / 2 - 24)
+    ctx.fillText('ELDORIA', this.vw / 2, this.vh / 2 + 4)
+    ctx.fillStyle = 'rgba(232,216,176,0.9)'
+    ctx.font = 'bold 13px monospace'
+    ctx.fillText(text, this.vw / 2, this.vh / 2 + 42)
+    // small progress dots
+    const dots = Math.floor(performance.now() / 300) % 4
+    ctx.fillText('.'.repeat(dots), this.vw / 2, this.vh / 2 + 66)
+  }
+
+  // Build the viewport tile cache so the first frame of gameplay doesn't
+  // stall. Called during the loading phase after world gen completes.
+  private prebuildTileCache() {
+    for (const zone of (['plains', 'dungeon'] as ZoneId[])) {
+      this.tileCacheDirty[zone] = true
+      this.tileCache[zone] = null
+      this.tileCacheBounds[zone] = { x: 0, y: 0, w: 0, h: 0 }
+    }
+    // position camera at player spawn so the cache covers the start area
+    this.camera.x = this.player.x - this.vw / 2
+    this.camera.y = this.player.y - this.vh / 2
+    const mw = (this.zone === 'plains' ? MAP_W : DUNGEON_W) * TILE
+    const mh = (this.zone === 'plains' ? MAP_H : DUNGEON_H) * TILE
+    this.camera.x = Math.max(0, Math.min(mw - this.vw, this.camera.x))
+    this.camera.y = Math.max(0, Math.min(mh - this.vh, this.camera.y))
+    // force a cache build for the active zone by rendering once
+    this.renderTiles()
   }
 
   // viewport-scoped tile cache: instead of caching the ENTIRE map (which
@@ -3323,7 +3397,7 @@ export class GameEngine {
   private renderDrops() {
     for (const d of this.drops) {
       const def = ITEMS[d.stack.id]
-      drawDroppedItem(this.ctx, def?.sprite || 'it_wood', d.x, d.y + d.bob)
+      drawDroppedItem(this.ctx, def?.sprite || 'it_wood', d.x, d.y, d.bob)
     }
   }
 
@@ -3426,7 +3500,6 @@ export class GameEngine {
       elfCd: this.companions.find((c) => c.kind === 'elf')?.cd ?? 0,
       dogCd: this.companions.find((c) => c.kind === 'dog')?.cd ?? 0,
       dogTarget: this.companions.find((c) => c.kind === 'dog')?.target ?? -1,
-      isNight: this.isNight(),
     }
   }
 }

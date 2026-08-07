@@ -18,7 +18,7 @@ import type {
   SpecialStructure, Companion, CompanionKind,
 } from './types'
 import {
-  drawTile, drawResourceNode, drawCrop, drawPlayer, drawEnemy, drawProjectile,
+  getTileSprite, drawResourceNode, drawCrop, drawPlayer, drawEnemy, drawProjectile,
   drawDroppedItem, drawStation, drawPortal, drawItemIcon, drawSpecialStructure,
 } from './sprites'
 
@@ -3196,9 +3196,11 @@ this.damageEnemy(e, 30 + p.level * 2, dx, dy, false)
       tx0 < bounds.x || ty0 < bounds.y ||
       tx0 + tw > bounds.x + bounds.w || ty0 + th > bounds.y + bounds.h
 
-    if (needRebuild) {
-      // cache a region slightly larger than visible so small camera movements don't trigger rebuilds
-      const pad = 4
+if (needRebuild) {
+      // cache a region slightly larger than visible so small camera movements don't trigger rebuilds.
+      // A generous pad (12 tiles) means the player can walk ~9 tiles before the visible area
+      // pokes out of the cached region and forces a rebuild — drastically reducing stutter.
+      const pad = 12
       const cx0 = Math.max(0, tx0 - pad)
       const cy0 = Math.max(0, ty0 - pad)
       const cx1 = Math.min(tiles[0].length - 1, tx1 + pad)
@@ -3210,10 +3212,12 @@ this.damageEnemy(e, 30 + p.level * 2, dx, dy, false)
       cache.height = ch * TILE
       const cctx = cache.getContext('2d')!
       cctx.imageSmoothingEnabled = false
+      // Pre-rendered per-tile sprites make this build fast even with the larger region:
+      // one drawImage per tile instead of dozens of fillRect calls.
       for (let y = 0; y < ch; y++) {
         for (let x = 0; x < cw; x++) {
           const t = tiles[cy0 + y][cx0 + x]
-          drawTile(cctx, t.type, x * TILE, y * TILE, t.v)
+          cctx.drawImage(getTileSprite(t.type, t.v), x * TILE, y * TILE)
         }
       }
       this.tileCache[this.zone] = cache

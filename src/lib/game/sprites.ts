@@ -175,7 +175,7 @@ export function drawTile(ctx: CanvasRenderingContext2D, t: TileType, x: number, 
       px(ctx, x + 6, y + 4, 20, 24, '#5a3d28')
       px(ctx, x + 20, y + 16, 3, 3, '#f1c40f')
       break
-    }
+}
     case 'crop':
     case 'tree':
     case 'rock':
@@ -183,6 +183,32 @@ export function drawTile(ctx: CanvasRenderingContext2D, t: TileType, x: number, 
       px(ctx, x, y, s, s, '#6aa84f')
       break
   }
+}
+
+// ---------------------------------------------------------------------------
+// TILE SPRITE CACHE — pre-render each tile type+variant once into a small
+// offscreen canvas so cache builds (and thus the render loop) only do fast
+// drawImage blits instead of dozens of fillRect calls per tile. This is the
+// key fix for the stutter when walking / interacting.
+// ---------------------------------------------------------------------------
+const TILE_VARIANTS = 4
+const tileSpriteCache: Record<string, HTMLCanvasElement> = {}
+
+export function getTileSprite(type: TileType, seed: number): HTMLCanvasElement {
+  const v = ((seed % TILE_VARIANTS) + TILE_VARIANTS) % TILE_VARIANTS
+  const key = `${type}_${v}`
+  let c = tileSpriteCache[key]
+  if (!c) {
+    c = document.createElement('canvas')
+    c.width = 32
+    c.height = 32
+    const ctx = c.getContext('2d')!
+    ctx.imageSmoothingEnabled = false
+    // deterministic seed per variant so the decorative detail is stable
+    drawTile(ctx, type, 0, 0, v * 251 + 17)
+    tileSpriteCache[key] = c
+  }
+  return c
 }
 
 // ---------------------------------------------------------------------------

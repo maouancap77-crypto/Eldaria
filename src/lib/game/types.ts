@@ -24,6 +24,7 @@ export type ZoneId = 'plains' | 'dungeon'
 export type ItemCategory =
   | 'weapon'
   | 'tool'
+  | 'armor'
   | 'food'
   | 'drink'
   | 'potion'
@@ -42,7 +43,8 @@ export interface ItemDef {
   thirst?: number
   heal?: number
   mana?: number
-  damage?: number
+damage?: number
+  defense?: number
   attackSpeed?: number
   reach?: number
   arc?: number
@@ -398,8 +400,9 @@ export interface SaveData {
   zone: ZoneId
   px: number
   py: number
-  inventory: ItemStack[]
+inventory: ItemStack[]
   equipped: string
+  armorEquipped: string
   craftLevels: Record<CraftSkill, number>
   craftXp: Record<CraftSkill, number>
   farmPlots: FarmPlot[]
@@ -436,8 +439,9 @@ export interface HudSnapshot {
   zoneName: string
   timeOfDay: number
   isNight: boolean
-  inventory: ItemStack[]
+inventory: ItemStack[]
   equipped: string
+  armorEquipped: string
   nearStation: 'campfire' | 'workbench' | null
   nearPortal: string | null
   nearInteract: string | null

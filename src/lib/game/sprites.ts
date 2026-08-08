@@ -1055,8 +1055,10 @@ export function drawItemIcon(ctx: CanvasRenderingContext2D, sprite: string, x: n
       P(4, 6, 8, 7, '#3a3a3a'); P(6, 7, 3, 2, '#1a1a1a'); P(9, 10, 2, 2, '#1a1a1a'); break
     case 'it_ironbar':
       P(3, 7, 10, 3, '#cfd8dc'); P(3, 7, 10, 1, '#e8eef0'); P(3, 9, 10, 1, '#9aa6ab'); break
-    case 'it_hide':
+case 'it_hide':
       P(4, 5, 8, 8, '#8a5a3a'); P(4, 5, 8, 1, '#a86a4a'); P(5, 7, 2, 2, '#6a4a2a'); P(9, 9, 2, 2, '#6a4a2a'); break
+    case 'it_leather':
+      P(3, 6, 10, 6, '#7a5230'); P(3, 5, 10, 2, '#9a6a40'); P(4, 8, 2, 2, '#5a3a20'); P(9, 9, 2, 2, '#5a3a20'); break
     case 'it_bone':
       P(4, 7, 8, 2, '#f4f8f9'); P(3, 6, 2, 4, '#f4f8f9'); P(11, 6, 2, 4, '#f4f8f9'); break
     case 'it_essence':

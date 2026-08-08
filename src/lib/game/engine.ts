@@ -53,9 +53,10 @@ interface InputState {
 
 export type EngineCommand =
   | { type: 'start'; heroName: string; cls: HeroClassId }
-  | { type: 'useItem'; index: number }
+| { type: 'useItem'; index: number }
   | { type: 'equip'; index: number }
   | { type: 'dropItem'; index: number }
+  | { type: 'discardItem'; index: number }
   | { type: 'craft'; recipeId: string }
   | { type: 'toggleInventory' }
   | { type: 'toggleCrafting' }
@@ -102,9 +103,10 @@ export class GameEngine {
   // rescue encounters: elf and dog are guarded by enemies until you free them
   rescueEncounters: { kind: CompanionKind; x: number; y: number; guardKilled: boolean; guardIds: number[] }[] = []
 
-  player!: Player
+player!: Player
   inventory: ItemStack[] = []
   equipped = 'rusty_sword'
+  armorEquipped = ''
   craftLevels: Record<CraftSkill, number> = { cooking: 1, crafting: 1, alchemy: 1, construction: 1 }
   craftXp: Record<CraftSkill, number> = { cooking: 0, crafting: 0, alchemy: 0, construction: 0 }
 
@@ -323,8 +325,11 @@ toast: { id: number; text: string; kind: 'info' | 'good' | 'bad' } | null = null
       case 'equip':
         this.equipItem(cmd.index)
         break
-      case 'dropItem':
+case 'dropItem':
         this.dropItem(cmd.index)
+        break
+      case 'discardItem':
+        this.discardItem(cmd.index)
         break
       case 'craft':
         this.craft(cmd.recipeId)
@@ -968,7 +973,8 @@ toast: { id: number; text: string; kind: 'info' | 'good' | 'bad' } | null = null
       comboCount: 0, comboTimer: 0, chargeTime: 0, lockTarget: -1, poise: 60, stagger: 0,
       ascension: 'none', holyCd: 0, fireballCd: 0, frostCd: 0, holyAura: 0,
     }
-    this.equipped = base.startWeapon
+this.equipped = base.startWeapon
+    this.armorEquipped = ''
     this.inventory = [...base.startItems.map((s) => ({ ...s }))]
     // everyone gets a hoe to farm
     this.addItem('hoe', 1)
@@ -998,8 +1004,9 @@ this.companions = []
     this.bossKilled = data.bossKilled
     this.heroName = data.heroName
     this.cls = data.cls
-    this.playtime = data.playtime
+this.playtime = data.playtime
     this.equipped = data.equipped
+    this.armorEquipped = data.armorEquipped || ''
     this.inventory = data.inventory || []
     this.craftLevels = data.craftLevels || { cooking: 1, crafting: 1, alchemy: 1, construction: 1 }
     this.craftXp = data.craftXp || { cooking: 0, crafting: 0, alchemy: 0, construction: 0 }
@@ -1063,8 +1070,9 @@ comboCount: 0, comboTimer: 0, chargeTime: 0, lockTarget: -1, poise: 60, stagger:
       zone: this.zone,
       px: p.x,
       py: p.y,
-      inventory: this.inventory,
+inventory: this.inventory,
       equipped: this.equipped,
+      armorEquipped: this.armorEquipped,
       craftLevels: this.craftLevels,
       craftXp: this.craftXp,
       farmPlots: this.farmPlots,
@@ -1200,7 +1208,7 @@ comboCount: 0, comboTimer: 0, chargeTime: 0, lockTarget: -1, poise: 60, stagger:
       }
       this.removeItem(stack.id, 1)
       this.flashToast(`Usou ${def.name}`, 'good')
-    } else if (def.category === 'weapon' || def.category === 'tool') {
+} else if (def.category === 'weapon' || def.category === 'tool' || def.category === 'armor') {
       this.equipItem(index)
     } else if (def.category === 'seed') {
       this.plantSeed()
@@ -1213,12 +1221,22 @@ comboCount: 0, comboTimer: 0, chargeTime: 0, lockTarget: -1, poise: 60, stagger:
     else this.flashToast('Sem poções', 'bad')
   }
 
-  equipItem(index: number) {
+equipItem(index: number) {
     const stack = this.inventory[index]
     if (!stack) return
     const def = ITEMS[stack.id]
-    if (!def || (def.category !== 'weapon' && def.category !== 'tool')) return
-    // swap equipped with this
+    if (!def || (def.category !== 'weapon' && def.category !== 'tool' && def.category !== 'armor')) return
+    if (def.category === 'armor') {
+      // equip armor: swap with currently equipped armor
+      const old = this.armorEquipped
+      this.armorEquipped = stack.id
+      stack.qty -= 1
+      this.inventory = this.inventory.filter((s) => s.qty > 0)
+      if (old && ITEMS[old]) this.addItem(old, 1)
+      this.flashToast(`Equipou ${def.name}`, 'good')
+      return
+    }
+    // swap equipped weapon/tool with this
     const old = this.equipped
     this.equipped = stack.id
     // remove one from stack
@@ -1238,6 +1256,19 @@ comboCount: 0, comboTimer: 0, chargeTime: 0, lockTarget: -1, poise: 60, stagger:
     })
     stack.qty -= 1
     this.inventory = this.inventory.filter((s) => s.qty > 0)
+    this.flashToast(`Largou 1 ${ITEMS[stack.id]?.name || stack.id}`, 'info')
+  }
+
+  /** Permanently remove an item stack from the inventory (true discard). */
+  discardItem(index: number) {
+    const stack = this.inventory[index]
+    if (!stack) return
+    const name = ITEMS[stack.id]?.name || stack.id
+    // if the discarded item is currently equipped, unequip it
+    if (stack.id === this.equipped) this.equipped = 'rusty_sword'
+    if (stack.id === this.armorEquipped) this.armorEquipped = ''
+    this.inventory = this.inventory.filter((s) => s !== stack)
+    this.flashToast(`Descartou ${name}`, 'info')
   }
 
   craft(recipeId: string) {
@@ -1314,7 +1345,7 @@ if (!this.hasItems(r.inputs)) {
       }
     }
 
-    // ---- collect water from a lake/river tile you're standing NEXT to ----
+// ---- collect water from a lake/river tile you're standing NEXT to ----
     if (tile && tile.type === 'water') {
       const bottles = this.countItem('water_bottle')
       if (bottles < 99) {
@@ -1325,6 +1356,11 @@ if (!this.hasItems(r.inputs)) {
         this.flashToast(`Encheu ${fill} garrafas de água`, 'good')
       } else {
         this.flashToast('Inventário cheio de água', 'info')
+      }
+      // fishing chance: 35% to catch a raw fish when interacting with water
+      if (Math.random() < 0.35) {
+        this.addItem('raw_fish', 1)
+        this.spawnFloat(p.x, p.y - 36, '+1 🐟 peixe cru', '#7fb6dc')
       }
       return
     }
@@ -1651,14 +1687,24 @@ this.damageEnemy(e, 30 + p.level * 2, dx, dy, false)
     plot.watered = false
   }
 
-  gatherResource(r: ResourceNode) {
+gatherResource(r: ResourceNode) {
     const p = this.player
-    // require correct tool for efficiency
+    // require correct tool for efficiency (use the best owned tool's power)
     let dmg = 1
     if (r.type === 'tree') {
-      if (this.inventory.some((s) => ITEMS[s.id]?.tool === 'axe')) dmg = 2
+      let best = 1
+      for (const s of this.inventory) {
+        const d = ITEMS[s.id]
+        if (d?.tool === 'axe' && (d.power || 1) > best) best = d.power || 1
+      }
+      dmg = best
     } else if (r.type === 'rock' || r.type === 'iron' || r.type === 'coal') {
-      if (this.inventory.some((s) => ITEMS[s.id]?.tool === 'pickaxe')) dmg = 2
+      let best = 1
+      for (const s of this.inventory) {
+        const d = ITEMS[s.id]
+        if (d?.tool === 'pickaxe' && (d.power || 1) > best) best = d.power || 1
+      }
+      dmg = best
     }
     r.hp -= dmg
     r.respawnAt = 0
@@ -1667,7 +1713,14 @@ this.damageEnemy(e, 30 + p.level * 2, dx, dy, false)
     else if (r.type === 'rock') this.addItem('stone', 1)
     else if (r.type === 'iron') this.addItem('iron_ore', 1)
     else if (r.type === 'coal') this.addItem('coal', 1)
-    else if (r.type === 'bush') this.addItem('berry', 1)
+else if (r.type === 'bush') {
+      this.addItem('berry', 1)
+      // honey bee hives in bushes — 25% chance
+      if (Math.random() < 0.25) {
+        this.addItem('honey', 1)
+        this.spawnFloat(r.x, r.y - 30, '+1 mel', '#f1c40f')
+      }
+    }
     else if (r.type === 'herb') this.addItem('herb', 1)
     const label = r.type === 'tree' ? 'madeira' : r.type === 'rock' ? 'pedra' : r.type === 'iron' ? 'ferro' : r.type === 'coal' ? 'carvão' : r.type === 'bush' ? 'baga' : r.type === 'herb' ? 'erva' : r.type
     this.spawnFloat(r.x, r.y - 16, `+1 ${label}`, '#c0a878')
@@ -2044,10 +2097,28 @@ const def = ENEMIES[e.kind]
     })
   }
 
+/** Total defense from equipped armor (and shield). */
+  private totalDefense(): number {
+    let d = 0
+    if (this.armorEquipped) {
+      const def = ITEMS[this.armorEquipped]
+      if (def && def.defense) d += def.defense
+    }
+    // shield also adds defense passively
+    if (this.equipped === 'guard_shield') {
+      const def = ITEMS['guard_shield']
+      if (def && def.defense) d += def.defense
+    }
+    return d
+  }
+
   damagePlayer(amount: number, sx: number, sy: number, _type?: string) {
     const p = this.player
     if (p.iframes > 0 || p.invuln > 0) return
-    let dmg = amount
+    // armor reduces incoming damage (flat reduction, min 20%)
+    const armor = this.totalDefense()
+    let dmg = Math.max(1, Math.round(amount * 0.8) - armor)
+    if (dmg < Math.round(amount * 0.3)) dmg = Math.round(amount * 0.3) // armor can't reduce below 30%
     let blocked = false
     let parried = false
     if (p.blocking && p.stamina > 0) {
@@ -3528,8 +3599,9 @@ if (needRebuild) {
       zoneName: ZONE_NAMES[this.zone],
       timeOfDay: this.timeOfDay,
       isNight: this.isNight(),
-      inventory: this.inventory,
+inventory: this.inventory,
       equipped: this.equipped,
+      armorEquipped: this.armorEquipped,
       nearStation: this.nearStation,
       nearPortal: this.nearPortal,
       nearInteract: this.nearInteract,

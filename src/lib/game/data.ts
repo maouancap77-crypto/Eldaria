@@ -85,9 +85,31 @@ export const ITEMS: Record<string, ItemDef> = {
   // Seeds
   seed_crop: { id: 'seed_crop', name: 'Semente de Cereais', category: 'seed', desc: 'Plante em terra arada.', sprite: 'it_seed', max: 30, crop: 'crop' },
 
-  // Misc
+// Misc
   torch: { id: 'torch', name: 'Tocha', category: 'misc', desc: 'Ilumina a noite e masmorras.', sprite: 'it_torch', max: 5 },
   crown: { id: 'crown', name: 'Coroa de Eldoria', category: 'misc', desc: 'Moeda do reino.', sprite: 'it_crown', max: 99999 },
+
+  // ---- Armor (progressão) ----
+  leather_armor: { id: 'leather_armor', name: 'Armadura de Couro', category: 'armor', desc: 'Defesa +6. Couro curtido e resistente.', sprite: 'it_leather', max: 1, defense: 6, rarity: 'uncommon' },
+  bone_armor: { id: 'bone_armor', name: 'Armadura de Osso', category: 'armor', desc: 'Defesa +10. Ossos entrelaçados.', sprite: 'it_bone', max: 1, defense: 10, rarity: 'rare' },
+  iron_armor: { id: 'iron_armor', name: 'Armadura de Ferro', category: 'armor', desc: 'Defesa +16. Forjada com barras de ferro.', sprite: 'it_ironbar', max: 1, defense: 16, rarity: 'epic' },
+  guard_shield: { id: 'guard_shield', name: 'Escudo Rúnico', category: 'armor', desc: 'Defesa +4 e bloqueio mais forte.', sprite: 'wpn_sword2', max: 1, defense: 4, rarity: 'rare' },
+
+  // ---- Ferramentas avançadas ----
+  iron_axe: { id: 'iron_axe', name: 'Machado de Ferro', category: 'tool', desc: 'Derruba árvores muito mais rápido.', sprite: 'tool_axe', max: 1, tool: 'axe', power: 3 },
+  iron_pickaxe: { id: 'iron_pickaxe', name: 'Picareta de Ferro', category: 'tool', desc: 'Minera pedras e minérios rápido.', sprite: 'tool_pick', max: 1, tool: 'pickaxe', power: 3 },
+
+  // ---- Armas de progressão ----
+  bone_club: { id: 'bone_club', name: 'Clava de Osso', category: 'weapon', desc: 'Brutal e pesada. Dano 24.', sprite: 'wpn_axe', max: 1, damage: 24, attackSpeed: 1.5, reach: 40, arc: 1.6, rarity: 'rare' },
+  runic_blade: { id: 'runic_blade', name: 'Lâmina Rúnica', category: 'weapon', desc: 'Imbúida de essência. Dano 34.', sprite: 'wpn_sword2', max: 1, damage: 34, attackSpeed: 1.9, reach: 44, arc: 1.5, rarity: 'epic' },
+
+  // ---- Consumíveis / materiais ----
+  leather: { id: 'leather', name: 'Couro Curtido', category: 'material', desc: 'Couro processado, pronto para armadura.', sprite: 'it_hide', max: 99 },
+  bandage: { id: 'bandage', name: 'Atadura', category: 'potion', desc: 'Cura 25 HP lentamente.', sprite: 'it_fiber', max: 20, effect: 'heal', effectAmount: 25 },
+  cooked_fish: { id: 'cooked_fish', name: 'Peixe Assado', category: 'food', desc: 'Fome +28, HP +10.', sprite: 'it_meat', max: 20, hunger: 28, heal: 10 },
+  jerky: { id: 'jerky', name: 'Carne Seca', category: 'food', desc: 'Fome +20. Bônus de stamina.', sprite: 'it_rawmeat', max: 20, hunger: 20 },
+  raw_fish: { id: 'raw_fish', name: 'Peixe Cru', category: 'food', desc: 'Pescado no lago. Assar na fogueira.', sprite: 'it_rawmeat', max: 20, hunger: 8, heal: -4 },
+  honey: { id: 'honey', name: 'Mel Silvestre', category: 'food', desc: 'Fome +14, mana +10.', sprite: 'it_berry', max: 20, hunger: 14, mana: 10 },
 }
 
 // ---- Recipes --------------------------------------------------------------
@@ -107,7 +129,27 @@ export const RECIPES: Recipe[] = [
   { id: 'r_arrows', name: 'Fabricar Flechas (x10)', station: 'workbench', inputs: [{ id: 'wood', qty: 2 }, { id: 'fiber', qty: 1 }], output: { id: 'arrow', qty: 10 } },
   { id: 'r_hppot', name: 'Preparar Poção de Vida', station: 'workbench', inputs: [{ id: 'herb', qty: 2 }, { id: 'berry', qty: 1 }, { id: 'water_bottle', qty: 1 }], output: { id: 'hp_potion', qty: 1 }, craftLevel: { skill: 'alchemy', level: 1 } },
   { id: 'r_mppot', name: 'Preparar Poção de Mana', station: 'workbench', inputs: [{ id: 'herb', qty: 1 }, { id: 'essence', qty: 1 }], output: { id: 'mp_potion', qty: 1 }, craftLevel: { skill: 'alchemy', level: 2 } },
-  { id: 'r_seed', name: 'Separar Sementes', station: 'workbench', inputs: [{ id: 'berry', qty: 3 }], output: { id: 'seed_crop', qty: 2 } },
+{ id: 'r_seed', name: 'Separar Sementes', station: 'workbench', inputs: [{ id: 'berry', qty: 3 }], output: { id: 'seed_crop', qty: 2 } },
+  // ---- Novas receitas de progressão ----
+  // Couro (bancada, construction)
+  { id: 'r_leather', name: 'Curtir Couro', station: 'workbench', inputs: [{ id: 'hide', qty: 2 }, { id: 'herb', qty: 1 }], output: { id: 'leather', qty: 1 }, craftLevel: { skill: 'construction', level: 1 } },
+  // Armaduras (bancada, construction)
+  { id: 'r_lear', name: 'Costurar Armadura de Couro', station: 'workbench', inputs: [{ id: 'leather', qty: 3 }, { id: 'fiber', qty: 2 }, { id: 'hide', qty: 1 }], output: { id: 'leather_armor', qty: 1 }, craftLevel: { skill: 'construction', level: 1 } },
+  { id: 'r_bone_armor', name: 'Montar Armadura de Osso', station: 'workbench', inputs: [{ id: 'bone', qty: 6 }, { id: 'fiber', qty: 3 }, { id: 'hide', qty: 2 }], output: { id: 'bone_armor', qty: 1 }, craftLevel: { skill: 'construction', level: 2 } },
+  { id: 'r_iron_armor', name: 'Forjar Armadura de Ferro', station: 'workbench', inputs: [{ id: 'iron_bar', qty: 5 }, { id: 'leather', qty: 2 }, { id: 'bone', qty: 2 }], output: { id: 'iron_armor', qty: 1 }, craftLevel: { skill: 'construction', level: 3 } },
+  // Escudo (bancada, construction)
+  { id: 'r_shield', name: 'Forjar Escudo Rúnico', station: 'workbench', inputs: [{ id: 'iron_bar', qty: 2 }, { id: 'essence', qty: 1 }, { id: 'wood', qty: 2 }], output: { id: 'guard_shield', qty: 1 }, craftLevel: { skill: 'construction', level: 2 } },
+  // Ferramentas avançadas
+  { id: 'r_ironaxe', name: 'Forjar Machado de Ferro', station: 'workbench', inputs: [{ id: 'iron_bar', qty: 2 }, { id: 'wood', qty: 2 }], output: { id: 'iron_axe', qty: 1 }, craftLevel: { skill: 'crafting', level: 2 } },
+  { id: 'r_ironpick', name: 'Forjar Picareta de Ferro', station: 'workbench', inputs: [{ id: 'iron_bar', qty: 2 }, { id: 'wood', qty: 2 }], output: { id: 'iron_pickaxe', qty: 1 }, craftLevel: { skill: 'crafting', level: 2 } },
+  // Armas
+  { id: 'r_boneclub', name: 'Forjar Clava de Osso', station: 'workbench', inputs: [{ id: 'bone', qty: 4 }, { id: 'hide', qty: 1 }], output: { id: 'bone_club', qty: 1 }, craftLevel: { skill: 'crafting', level: 2 } },
+  { id: 'r_runic', name: 'Imbuir Lâmina Rúnica', station: 'workbench', inputs: [{ id: 'iron_bar', qty: 3 }, { id: 'essence', qty: 2 }, { id: 'bone', qty: 2 }], output: { id: 'runic_blade', qty: 1 }, craftLevel: { skill: 'crafting', level: 3 } },
+  // Consumíveis
+  { id: 'r_bandage', name: 'Fazer Atadura', station: 'workbench', inputs: [{ id: 'fiber', qty: 2 }, { id: 'herb', qty: 1 }], output: { id: 'bandage', qty: 2 }, craftLevel: { skill: 'alchemy', level: 1 } },
+  // Peixe (fogueira, cooking)
+  { id: 'r_fish', name: 'Assar Peixe', station: 'campfire', inputs: [{ id: 'raw_fish', qty: 1 }, { id: 'wood', qty: 1 }], output: { id: 'cooked_fish', qty: 1 }, craftLevel: { skill: 'cooking', level: 1 } },
+  { id: 'r_jerky', name: 'Seca Carne', station: 'campfire', inputs: [{ id: 'raw_meat', qty: 1 }, { id: 'honey', qty: 1 }, { id: 'wood', qty: 1 }], output: { id: 'jerky', qty: 2 }, craftLevel: { skill: 'cooking', level: 2 } },
   // Hand (none) — basic
   { id: 'r_water', name: 'Encher Garrafa (água)', station: 'none', inputs: [{ id: 'fiber', qty: 2 }], output: { id: 'water_bottle', qty: 1 } },
   { id: 'r_legend', name: 'Forjar Lâmina de Eldoria', station: 'workbench', inputs: [{ id: 'essence', qty: 3 }, { id: 'iron_bar', qty: 5 }, { id: 'bone', qty: 4 }], output: { id: 'legendary_blade', qty: 1 }, craftLevel: { skill: 'crafting', level: 4 } },

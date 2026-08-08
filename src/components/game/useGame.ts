@@ -8,7 +8,7 @@ const initialSnap: HudSnapshot = {
   screen: 'title', cls: 'warrior', heroName: 'Herói', level: 1, xp: 0, xpNext: 60,
   hp: 0, maxHp: 0, stamina: 0, maxStamina: 0, mana: 0, maxMana: 0,
   hunger: 0, thirst: 0, gold: 0, zone: 'plains', zoneName: 'Planície Dourada',
-  timeOfDay: 0.3, isNight: false, inventory: [], equipped: 'rusty_sword',
+timeOfDay: 0.3, isNight: false, inventory: [], equipped: 'rusty_sword', armorEquipped: '',
   nearStation: null, nearPortal: null, nearInteract: null, bossHp: null, bossName: null,
   kills: 0, deaths: 0, craftLevels: { cooking: 1, crafting: 1, alchemy: 1, construction: 1 },
   toast: null, paused: false, showInventory: false, showCrafting: false, message: null, killFeed: [],

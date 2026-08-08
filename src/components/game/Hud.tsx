@@ -1,7 +1,7 @@
 'use client'
 
 import type { HudSnapshot } from '@/lib/game/types'
-import { CLASSES } from '@/lib/game/data'
+import { CLASSES, ITEMS } from '@/lib/game/data'
 import { ItemIcon, spriteFor } from './ItemIcon'
 
 interface Props {
@@ -122,10 +122,16 @@ export function Hud({ s, onUseItem, onToggleMusic }: Props) {
             <span>{s.isNight ? '🌙' : '☀️'}</span>
           </div>
         </div>
-        <div className="pix-panel px-3 py-1 inline-flex items-center gap-1.5">
+<div className="pix-panel px-3 py-1 inline-flex items-center gap-1.5">
           <ItemIcon sprite="it_crown" size={16} />
           <span className="text-sm font-bold text-amber-300">{s.gold}</span>
         </div>
+        {s.armorEquipped && (
+          <div className="pix-panel px-3 py-1 inline-flex items-center gap-1.5" title="Armadura equipada — reduz dano recebido">
+            <span className="text-[10px]">🛡️</span>
+            <span className="text-[10px] font-bold text-sky-300">{def2Name(s.armorEquipped)}</span>
+          </div>
+        )}
         <div className="text-[10px] text-amber-100/40">
           Abates: <span className="text-amber-200">{s.kills}</span> · Mortes: <span className="text-red-300">{s.deaths}</span>
         </div>
@@ -297,4 +303,8 @@ function timeStr(t: number): string {
   const h = Math.floor(hours)
   const m = Math.floor((hours - h) * 60)
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
+function def2Name(id: string): string {
+  return ITEMS[id]?.name || id
 }

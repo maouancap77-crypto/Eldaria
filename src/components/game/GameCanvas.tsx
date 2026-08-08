@@ -31,9 +31,10 @@ export function GameCanvas() {
       {snap.screen === 'game' && snap.showInventory && !snap.paused && (
         <InventoryPanel
           s={snap}
-          onUseItem={(i) => cmd({ type: 'useItem', index: i })}
+onUseItem={(i) => cmd({ type: 'useItem', index: i })}
           onEquip={(i) => cmd({ type: 'equip', index: i })}
           onDrop={(i) => cmd({ type: 'dropItem', index: i })}
+          onDiscard={(i) => cmd({ type: 'discardItem', index: i })}
           onClose={() => cmd({ type: 'toggleInventory' })}
         />
       )}

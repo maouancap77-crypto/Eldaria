@@ -9,11 +9,15 @@ export function spriteFor(id: string): string {
     berry: 'it_berry', bread: 'it_bread', cooked_meat: 'it_meat', raw_meat: 'it_rawmeat',
     stew: 'it_stew', water_bottle: 'it_water', hp_potion: 'it_hppot', mp_potion: 'it_mppot',
     antidote: 'it_antidote', wood: 'it_wood', stone: 'it_stone', fiber: 'it_fiber', herb: 'it_herb',
-    iron_ore: 'it_iron', coal: 'it_coal', iron_bar: 'it_ironbar', hide: 'it_hide', bone: 'it_bone',
+iron_ore: 'it_iron', coal: 'it_coal', iron_bar: 'it_ironbar', hide: 'it_hide', bone: 'it_bone',
     essence: 'it_essence', seed_crop: 'it_seed', torch: 'it_torch', crown: 'it_crown', arrow: 'it_arrow',
     rusty_sword: 'wpn_sword', iron_sword: 'wpn_sword2', bone_axe: 'wpn_axe', staff: 'wpn_staff',
     bow: 'wpn_bow', dagger: 'wpn_dagger', legendary_blade: 'wpn_legend',
     hoe: 'tool_hoe', axe: 'tool_axe', pickaxe: 'tool_pick',
+    leather_armor: 'it_leather', bone_armor: 'it_bone', iron_armor: 'it_ironbar', guard_shield: 'wpn_sword2',
+    iron_axe: 'tool_axe', iron_pickaxe: 'tool_pick', bone_club: 'wpn_axe', runic_blade: 'wpn_sword2',
+    leather: 'it_leather', bandage: 'it_fiber', cooked_fish: 'it_meat', jerky: 'it_rawmeat',
+    raw_fish: 'it_rawmeat', honey: 'it_berry',
   }
   return map[id] || 'it_wood'
 }

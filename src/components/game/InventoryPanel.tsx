@@ -10,6 +10,7 @@ interface Props {
   onUseItem: (i: number) => void
   onEquip: (i: number) => void
   onDrop: (i: number) => void
+  onDiscard: (i: number) => void
   onClose: () => void
 }
 
@@ -21,7 +22,7 @@ const rarityColor: Record<string, string> = {
   legendary: '#f1c40f',
 }
 
-export function InventoryPanel({ s, onUseItem, onEquip, onDrop, onClose }: Props) {
+export function InventoryPanel({ s, onUseItem, onEquip, onDrop, onDiscard, onClose }: Props) {
   const [sel, setSel] = useState(0)
   const stack = s.inventory[sel]
   const def = stack ? ITEMS[stack.id] : null
@@ -35,9 +36,11 @@ export function InventoryPanel({ s, onUseItem, onEquip, onDrop, onClose }: Props
       >
         <div className="flex items-center justify-between px-4 py-2 border-b border-amber-900/40">
           <h2 className="text-sm font-bold text-amber-300 tracking-widest">⚒ INVENTÁRIO</h2>
-          <div className="flex items-center gap-3 text-[10px] text-amber-100/60">
-            <span>Equipado:</span>
+<div className="flex items-center gap-3 text-[10px] text-amber-100/60">
+            <span>Arma:</span>
             <span className="text-amber-200 font-bold">{def2name(s.equipped)}</span>
+            <span>Armadura:</span>
+            <span className="text-amber-200 font-bold">{s.armorEquipped ? def2name(s.armorEquipped) : 'Nenhuma'}</span>
             <button className="pix-btn px-3 py-1 text-[10px]" onClick={onClose}>ESC</button>
           </div>
         </div>
@@ -99,8 +102,9 @@ export function InventoryPanel({ s, onUseItem, onEquip, onDrop, onClose }: Props
                   </div>
                 </div>
                 <p className="text-[10px] text-amber-100/70 leading-relaxed mb-2">{def.desc}</p>
-                <div className="text-[10px] space-y-0.5 mb-3">
+<div className="text-[10px] space-y-0.5 mb-3">
                   {def.damage && <Row k="Dano" v={String(def.damage)} />}
+                  {def.defense && <Row k="Defesa" v={`+${def.defense}`} c="#3498db" />}
                   {def.attackSpeed && <Row k="Vel. Atq" v={`${def.attackSpeed}/s`} />}
                   {def.hunger && <Row k="Fome" v={`+${def.hunger}`} c="#e67e22" />}
                   {def.thirst && <Row k="Sede" v={`+${def.thirst}`} c="#3f7fb4" />}
@@ -115,16 +119,21 @@ export function InventoryPanel({ s, onUseItem, onEquip, onDrop, onClose }: Props
                       Usar
                     </button>
                   )}
-                  {(def.category === 'weapon' || def.category === 'tool') && (
+                  {(def.category === 'weapon' || def.category === 'tool' || def.category === 'armor') && (
                     <button className="pix-btn w-full py-1.5 text-[10px]" onClick={() => onEquip(sel)}>
-                      {s.equipped === stack.id ? 'Equipado' : 'Equipar'}
+                      {def.category === 'armor'
+                        ? (s.armorEquipped === stack.id ? 'Equipado' : 'Equipar')
+                        : (s.equipped === stack.id ? 'Equipado' : 'Equipar')}
                     </button>
                   )}
                   {def.category === 'seed' && (
                     <div className="text-[9px] text-amber-100/50 text-center">Plante em terra arada (E)</div>
                   )}
-                  <button className="pix-btn w-full py-1.5 text-[10px] !border-red-900 !text-red-300" onClick={() => { onDrop(sel); setSel(Math.max(0, sel - 1)) }}>
-                    Descartar 1
+                  <button className="pix-btn w-full py-1.5 text-[10px] !border-red-900 !text-red-300" onClick={() => { onDiscard(sel); setSel(Math.max(0, sel - 1)) }}>
+                    ✕ Descartar (remover)
+                  </button>
+                  <button className="pix-btn w-full py-1.5 text-[10px]" onClick={() => { onDrop(sel); setSel(Math.max(0, sel - 1)) }}>
+                    ↓ Dropar 1 no chão
                   </button>
                 </div>
               </>

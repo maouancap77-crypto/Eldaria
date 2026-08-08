@@ -238,7 +238,8 @@ export function Hud({ s, onUseItem, onToggleMusic }: Props) {
         <div><span className="text-amber-300">WASD</span> mover · <span className="text-amber-300">J/Click</span> golpe (mira no mouse)</div>
         <div><span className="text-amber-300">K/Dir(segure)</span> pesado/carregar · <span className="text-amber-300">Espaço</span> esquiva</div>
         <div><span className="text-amber-300">Shift</span> bloquear/parry · <span className="text-amber-300">Tab</span> mirar</div>
-        <div><span className="text-amber-300">E</span> interagir/coletar · <span className="text-amber-300">T</span> plantar/arar · <span className="text-amber-300">F/G</span> magias</div>
+<div><span className="text-amber-300">E</span> interagir/coletar · <span className="text-amber-300">T</span> plantar/arar · <span className="text-amber-300">F/G</span> magias</div>
+        <div><span className="text-amber-300">I</span> inventário · <span className="text-amber-300">C</span> criar (perto de estação) · <span className="text-amber-300">Q</span> poção</div>
       </div>
 
       {/* Station / portal hint */}
